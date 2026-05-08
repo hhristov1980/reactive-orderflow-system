@@ -1,4 +1,4 @@
-package com.order.advice;
+package com.order.presentation.advice;
 
 import com.order.domain.dto.error.ErrorResponse;
 import com.order.exception.ProductNotFoundException;
