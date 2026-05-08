@@ -1,9 +1,8 @@
-package com.order.repository;
+package com.order.infrastructure.repository;
 
 import com.order.domain.entity.Product;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
-import org.springframework.stereotype.Repository;
 
-@Repository
-public interface ProductRepository extends ReactiveCrudRepository<Product, Long> {
+public interface ProductRepository
+        extends ReactiveCrudRepository<Product, Long> {
 }

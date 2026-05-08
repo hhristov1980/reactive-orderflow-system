@@ -1,14 +1,13 @@
-package com.order.domain.dto.response;
+package com.order.domain.dto.event;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
-public record ProductResponse(
+public record ProductCreatedEvent(
         Long id,
         String name,
         BigDecimal price,
         Integer stock,
-        OffsetDateTime createdAt,
-        OffsetDateTime updatedAt
+        OffsetDateTime createdAt
 ) {
 }

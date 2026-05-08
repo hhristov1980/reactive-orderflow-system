@@ -1,3 +1,9 @@
+server:
+  port: 8081
+logging:
+  level:
+    org.springframework.r2dbc: INFO
+    org.springframework.kafka: INFO
 spring:
   application:
     name: Order
