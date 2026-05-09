@@ -1,6 +1,7 @@
 package com.order.application.service;
 
 import com.order.domain.dto.request.CreateProductRequest;
+import com.order.domain.dto.request.UpdateProductRequest;
 import com.order.domain.dto.response.PagedResponse;
 import com.order.domain.dto.response.ProductResponse;
 import com.order.domain.enums.ProductSortField;
@@ -20,4 +21,11 @@ public interface ProductService {
     );
 
     Mono<ProductResponse> getById(Long id);
+
+    Mono<ProductResponse> update(
+            Long id,
+            UpdateProductRequest request
+    );
+
+    Mono<Void> delete(Long id);
 }
