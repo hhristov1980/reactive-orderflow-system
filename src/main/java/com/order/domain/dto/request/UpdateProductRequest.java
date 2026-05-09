@@ -7,7 +7,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 
 import java.math.BigDecimal;
 
-public record CreateProductRequest(
+public record UpdateProductRequest(
 
         @NotBlank
         String name,
