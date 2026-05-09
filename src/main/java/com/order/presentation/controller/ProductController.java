@@ -44,8 +44,9 @@ public class ProductController {
     }
 
     @GetMapping
+    @Operation(summary = "Get all products")
     public Mono<ResponseEntity<PagedResponse<ProductResponse>>> getAll(
-            @RequestParam(defaultValue = "1") @Valid @Min(value = 1)
+            @RequestParam(defaultValue = "0") @Valid @Min(value = 0)
             int page,
             @RequestParam(defaultValue = "20") @Valid @Min(value = 1)
             int size,
@@ -64,6 +65,7 @@ public class ProductController {
     }
 
     @GetMapping("/{id}")
+    @Operation(summary = "Get product by id")
     public Mono<ResponseEntity<ProductResponse>> getById(
             @Positive @PathVariable Long id) {
 

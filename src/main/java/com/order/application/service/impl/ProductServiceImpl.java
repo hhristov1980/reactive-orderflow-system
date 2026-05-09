@@ -54,44 +54,47 @@ public class ProductServiceImpl implements ProductService {
             int page,
             int size,
             ProductSortField sortBy,
-            SortDirection direction) {
+            SortDirection direction
+    ) {
 
-        log.info("Getting all products: page {}, size {}, sortBy {}, direction {}", page, size, sortBy, direction);
-        page = page - 1; // avoid having page == 0 in the request
+        log.info("Getting all products: page {}, size {}, sortBy {}, direction {}",
+                page, size, sortBy, direction);
+
         int validatedPage = Math.max(page, 0);
         int validatedSize = Math.clamp(size, 1, 100);
 
-        Mono<List<ProductResponse>> productsMono =
-                customRepository.findAllPaged(
-                                validatedPage,
-                                validatedSize,
-                                sortBy,
-                                direction
-                        )
+        Mono<List<ProductResponse>> productsMono = customRepository.findAllPaged(
+                        validatedPage,
+                        validatedSize,
+                        sortBy,
+                        direction)
                         .map(mapper::toResponse)
                         .collectList();
 
-        Mono<Long> countMono =
-                customRepository.countAll();
-
+        Mono<Long> countMono = customRepository.countAll();
         return Mono.zip(productsMono, countMono)
                 .map(tuple -> {
                     List<ProductResponse> products = tuple.getT1();
                     long totalElements = tuple.getT2();
                     int totalPages = (int) Math.ceil((double) totalElements / validatedSize);
+                    boolean first = validatedPage == 0;
+                    boolean last = totalPages == 0 || validatedPage >= totalPages - 1;
+                    boolean hasNext = validatedPage < totalPages - 1;
+                    boolean hasPrevious = validatedPage > 0;
                     return new PagedResponse<>(
                             products,
                             validatedPage,
                             validatedSize,
                             totalElements,
                             totalPages,
-                            validatedPage == 0,
-                            validatedPage >= totalPages - 1,
-                            validatedPage < totalPages - 1,
-                            validatedPage > 0
+                            first,
+                            last,
+                            hasNext,
+                            hasPrevious
                     );
                 });
     }
+
 
     @Override
     public Mono<ProductResponse> getById(Long id) {
