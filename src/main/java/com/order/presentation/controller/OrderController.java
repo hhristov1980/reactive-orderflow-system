@@ -68,6 +68,15 @@ public class OrderController {
                 .map(ResponseEntity::ok);
     }
 
+    @Operation(summary = "Confirm order")
+    @PatchMapping("/{id}/confirm")
+    public Mono<ResponseEntity<OrderResponse>> confirm(
+            @PathVariable @Positive Long id
+    ) {
+        return service.confirm(id)
+                .map(ResponseEntity::ok);
+    }
+
     @Operation(summary = "Cancel order")
     @PatchMapping("/{id}/cancel")
     public Mono<ResponseEntity<OrderResponse>> cancel(

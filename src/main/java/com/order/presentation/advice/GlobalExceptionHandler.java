@@ -245,6 +245,42 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
+    @ExceptionHandler(OrderAlreadyConfirmedException.class)
+    public ResponseEntity<ErrorResponse> handleOrderAlreadyConfirmed(
+            OrderAlreadyConfirmedException ex,
+            ServerHttpRequest request
+    ) {
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.name(),
+                ex.getMessage(),
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
+    @ExceptionHandler(OrderCannotBeConfirmedException.class)
+    public ResponseEntity<ErrorResponse> handleOrderCannotBeConfirmed(
+            OrderCannotBeConfirmedException ex,
+            ServerHttpRequest request
+    ) {
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.name(),
+                ex.getMessage(),
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
 
     private String extractBindingErrors(BindingResult bindingResult) {
         return bindingResult.getFieldErrors()

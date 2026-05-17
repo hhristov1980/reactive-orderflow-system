@@ -21,4 +21,6 @@ public interface OrderService {
     Mono<OrderResponse> getById(Long id);
 
     Mono<OrderResponse> cancel(Long id);
+
+    Mono<OrderResponse> confirm(Long id);
 }
