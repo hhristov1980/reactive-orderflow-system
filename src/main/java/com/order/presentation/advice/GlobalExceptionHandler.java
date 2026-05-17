@@ -2,31 +2,28 @@ package com.order.presentation.advice;
 
 import com.order.domain.dto.error.ErrorResponse;
 import com.order.exception.ProductNotFoundException;
+import com.order.exception.UserEmailAlreadyExistsException;
+import com.order.exception.UserNotFoundException;
 import org.springframework.context.MessageSourceResolvable;
-import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.validation.BindingResult;
-import org.springframework.validation.FieldError;
-import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebInputException;
 
 import java.time.OffsetDateTime;
-import java.util.Arrays;
 import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handle(
+    public ResponseEntity<ErrorResponse> handleGeneralException(
             Exception ex,
             ServerHttpRequest request
     ) {
@@ -139,6 +136,45 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity.badRequest().body(response);
     }
+
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFound(
+            UserNotFoundException ex,
+            ServerHttpRequest request
+    ) {
+
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.name(),
+                ex.getMessage(),
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(response);
+    }
+
+    @ExceptionHandler(UserEmailAlreadyExistsException.class)
+    public ResponseEntity<ErrorResponse> handleUserEmailAlreadyExists(
+            UserEmailAlreadyExistsException ex,
+            ServerHttpRequest request
+    ) {
+
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.name(),
+                ex.getMessage(),
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
 
     private String extractBindingErrors(BindingResult bindingResult) {
         return bindingResult.getFieldErrors()

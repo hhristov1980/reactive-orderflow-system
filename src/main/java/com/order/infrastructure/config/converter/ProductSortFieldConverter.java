@@ -1,5 +1,6 @@
-package com.order.domain.enums;
+package com.order.infrastructure.config.converter;
 
+import com.order.domain.enums.ProductSortField;
 import org.jspecify.annotations.NonNull;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.stereotype.Component;
@@ -7,7 +8,7 @@ import org.springframework.stereotype.Component;
 import java.util.Arrays;
 
 @Component
-public class StringToProductSortFieldConverter implements Converter<String, ProductSortField> {
+public class ProductSortFieldConverter implements Converter<String, ProductSortField> {
     @Override
     public ProductSortField convert(@NonNull String source) {
         return Arrays.stream(ProductSortField.values())

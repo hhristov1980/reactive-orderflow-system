@@ -2,6 +2,7 @@ package com.order.application.service.impl;
 
 import com.order.application.mapper.ProductMapper;
 import com.order.application.service.ProductService;
+import com.order.domain.dto.event.ProductCreatedEvent;
 import com.order.domain.dto.request.CreateProductRequest;
 import com.order.domain.dto.request.UpdateProductRequest;
 import com.order.domain.dto.response.PagedResponse;
@@ -10,6 +11,7 @@ import com.order.domain.entity.Product;
 import com.order.domain.enums.ProductSortField;
 import com.order.domain.enums.SortDirection;
 import com.order.exception.ProductNotFoundException;
+import com.order.infrastructure.messaging.kafka.ProductEventProducer;
 import com.order.infrastructure.repository.ProductRepository;
 import com.order.infrastructure.repository.custom.ProductCustomRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository repository;
     private final ProductCustomRepository customRepository;
     private final ProductMapper mapper;
+    //private final ProductEventProducer productEventProducer;
 
     @Override
     public Mono<ProductResponse> create(CreateProductRequest request) {
@@ -36,6 +39,19 @@ public class ProductServiceImpl implements ProductService {
         Product product = mapper.toEntity(request);
         product.setId(null);
         initializeAuditFields(product);
+//        return repository.save(product)
+//                .flatMap(savedProduct ->{
+//                    ProductCreatedEvent productCreatedEvent =
+//                            new ProductCreatedEvent(
+//                                    savedProduct.getId(),
+//                                    savedProduct.getName(),
+//                                    savedProduct.getPrice(),
+//                                    savedProduct.getStock(),
+//                                    savedProduct.getCreatedAt()
+//                            );
+//                    return productEventProducer.publishProductCreated(productCreatedEvent)
+//                            .thenReturn(savedProduct);
+//                })
         return repository.save(product)
                 .map(mapper::toResponse)
                 .doOnSuccess(saved ->
