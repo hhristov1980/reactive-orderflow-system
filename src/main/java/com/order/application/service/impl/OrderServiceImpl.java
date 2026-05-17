@@ -149,6 +149,47 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    public Mono<OrderResponse> confirm(Long id) {
+        log.info("Confirming order with id {}", id);
+
+        Mono<OrderResponse> confirmFlow =
+                orderRepository.findById(id)
+                        .switchIfEmpty(Mono.error(new OrderNotFoundException(id)))
+                        .flatMap(order -> {
+                            if (order.getStatus() == OrderStatus.CONFIRMED) {
+                                return Mono.error(
+                                        new OrderAlreadyConfirmedException(id)
+                                );
+                            }
+
+                            if (order.getStatus() != OrderStatus.CREATED) {
+                                return Mono.error(
+                                        new OrderCannotBeConfirmedException(
+                                                id,
+                                                order.getStatus().name()
+                                        )
+                                );
+                            }
+
+                            return updateOrderAsConfirmed(order)
+                                    .flatMap(confirmedOrder ->
+                                            orderItemRepository.findByOrderId(
+                                                            confirmedOrder.getId()
+                                                    )
+                                                    .collectList()
+                                                    .map(items ->
+                                                            toResponse(
+                                                                    confirmedOrder,
+                                                                    items
+                                                            )
+                                                    )
+                                    );
+                        });
+
+        return transactionalOperator.transactional(confirmFlow);
+    }
+
+    @Override
     public Mono<OrderResponse> cancel(Long id) {
         log.info("Cancelling order with id {}", id);
 
@@ -319,6 +360,13 @@ public class OrderServiceImpl implements OrderService {
 
     private Mono<Order> updateOrderAsCancelled(Order order) {
         order.setStatus(OrderStatus.CANCELLED);
+        order.setUpdatedAt(OffsetDateTime.now());
+
+        return orderRepository.save(order);
+    }
+
+    private Mono<Order> updateOrderAsConfirmed(Order order) {
+        order.setStatus(OrderStatus.CONFIRMED);
         order.setUpdatedAt(OffsetDateTime.now());
 
         return orderRepository.save(order);
