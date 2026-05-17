@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 public record ProductCreatedEvent(
-        Long id,
+        Long productId,
         String name,
         BigDecimal price,
         Integer stock,
