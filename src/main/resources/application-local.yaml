@@ -1,23 +1,45 @@
+server:
+  port: 8081
+
 spring:
   application:
     name: Order
+
   r2dbc:
     url: r2dbc:postgresql://localhost:5433/orderflow
     username: postgres
     password: postgres
-  kafka:
-    bootstrap-servers: localhost:9092
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-  healthcheck:
-    test: [ "CMD-SHELL", "pg_isready -U postgres" ]
-    interval: 5s
-    retries: 5
+
   sql:
     init:
-      mode: always
+      mode: never
+
+  kafka:
+    bootstrap-servers: localhost:9092
+
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+    consumer:
+      group-id: orderflow-audit-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
 logging:
   level:
     org.springframework.r2dbc: DEBUG
     org.springframework.kafka: INFO
+    org.apache.kafka: WARN
+
+orderflow:
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer-group-id: orderflow-audit-service
+    auto-offset-reset: earliest
+
+    topics:
+      order-created: order.created
+      order-confirmed: order.confirmed
+      order-cancelled: order.cancelled
