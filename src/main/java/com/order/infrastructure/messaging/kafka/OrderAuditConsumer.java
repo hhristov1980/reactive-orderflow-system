@@ -2,9 +2,11 @@ package com.order.infrastructure.messaging.kafka;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.order.application.service.AuditService;
 import com.order.domain.event.OrderCancelledEvent;
 import com.order.domain.event.OrderConfirmedEvent;
 import com.order.domain.event.OrderCreatedEvent;
+import com.order.infrastructure.config.properties.OrderKafkaProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -15,7 +17,13 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class OrderAuditConsumer {
 
+    private static final String AGGREGATE_TYPE_ORDER = "ORDER";
+    private static final String EVENT_TYPE_ORDER_CREATED = "ORDER_CREATED";
+    private static final String EVENT_TYPE_ORDER_CONFIRMED = "ORDER_CONFIRMED";
+    private static final String EVENT_TYPE_ORDER_CANCELLED = "ORDER_CANCELLED";
+
     private final ObjectMapper objectMapper;
+    private final AuditService auditService;
 
     @KafkaListener(
             topics = "#{@orderKafkaProperties.topics.orderCreated}",
@@ -34,6 +42,13 @@ public class OrderAuditConsumer {
                 event.totalAmount(),
                 event.items()
         );
+
+        auditService.saveEvent(
+                EVENT_TYPE_ORDER_CREATED,
+                AGGREGATE_TYPE_ORDER,
+                event.orderId(),
+                payload
+        ).subscribe();
     }
 
     @KafkaListener(
@@ -52,6 +67,13 @@ public class OrderAuditConsumer {
                 event.userId(),
                 event.confirmedAt()
         );
+
+        auditService.saveEvent(
+                EVENT_TYPE_ORDER_CONFIRMED,
+                AGGREGATE_TYPE_ORDER,
+                event.orderId(),
+                payload
+        ).subscribe();
     }
 
     @KafkaListener(
@@ -70,6 +92,13 @@ public class OrderAuditConsumer {
                 event.userId(),
                 event.cancelledAt()
         );
+
+        auditService.saveEvent(
+                EVENT_TYPE_ORDER_CANCELLED,
+                AGGREGATE_TYPE_ORDER,
+                event.orderId(),
+                payload
+        ).subscribe();
     }
 
     private <T> T readEvent(
