@@ -12,7 +12,12 @@ import com.order.domain.entity.Product;
 import com.order.domain.enums.OrderSortField;
 import com.order.domain.enums.OrderStatus;
 import com.order.domain.enums.SortDirection;
+import com.order.domain.event.OrderCancelledEvent;
+import com.order.domain.event.OrderConfirmedEvent;
+import com.order.domain.event.OrderCreatedEvent;
+import com.order.domain.event.OrderItemEvent;
 import com.order.exception.*;
+import com.order.infrastructure.messaging.kafka.OrderEventProducer;
 import com.order.infrastructure.repository.OrderItemRepository;
 import com.order.infrastructure.repository.OrderRepository;
 import com.order.infrastructure.repository.ProductRepository;
@@ -42,6 +47,7 @@ public class OrderServiceImpl implements OrderService {
     private final ProductRepository productRepository;
     private final OrderCustomRepository customRepository;
     private final TransactionalOperator transactionalOperator;
+    private final OrderEventProducer orderEventProducer;
 
     @Override
     public Mono<OrderResponse> create(CreateOrderRequest request) {
@@ -66,11 +72,20 @@ public class OrderServiceImpl implements OrderService {
                                                 .flatMap(savedOrder ->
                                                         saveOrderItems(savedOrder, orderItems)
                                                                 .collectList()
-                                                                .map(savedItems ->
-                                                                        toResponse(
-                                                                                savedOrder,
-                                                                                savedItems
-                                                                        )
+                                                                .flatMap(savedItems ->
+                                                                        orderEventProducer
+                                                                                .publishOrderCreated(
+                                                                                        toOrderCreatedEvent(
+                                                                                                savedOrder,
+                                                                                                savedItems
+                                                                                        )
+                                                                                )
+                                                                                .thenReturn(
+                                                                                        toResponse(
+                                                                                                savedOrder,
+                                                                                                savedItems
+                                                                                        )
+                                                                                )
                                                                 )
                                                 );
                                     });
@@ -173,15 +188,21 @@ public class OrderServiceImpl implements OrderService {
 
                             return updateOrderAsConfirmed(order)
                                     .flatMap(confirmedOrder ->
-                                            orderItemRepository.findByOrderId(
-                                                            confirmedOrder.getId()
-                                                    )
+                                            orderItemRepository.findByOrderId(confirmedOrder.getId())
                                                     .collectList()
-                                                    .map(items ->
-                                                            toResponse(
-                                                                    confirmedOrder,
-                                                                    items
-                                                            )
+                                                    .flatMap(items ->
+                                                            orderEventProducer
+                                                                    .publishOrderConfirmed(
+                                                                            toOrderConfirmedEvent(
+                                                                                    confirmedOrder
+                                                                            )
+                                                                    )
+                                                                    .thenReturn(
+                                                                            toResponse(
+                                                                                    confirmedOrder,
+                                                                                    items
+                                                                            )
+                                                                    )
                                                     )
                                     );
                         });
@@ -208,8 +229,19 @@ public class OrderServiceImpl implements OrderService {
                                     .flatMap(items ->
                                             restoreStock(items)
                                                     .then(updateOrderAsCancelled(order))
-                                                    .map(cancelledOrder ->
-                                                            toResponse(cancelledOrder, items)
+                                                    .flatMap(cancelledOrder ->
+                                                            orderEventProducer
+                                                                    .publishOrderCancelled(
+                                                                            toOrderCancelledEvent(
+                                                                                    cancelledOrder
+                                                                            )
+                                                                    )
+                                                                    .thenReturn(
+                                                                            toResponse(
+                                                                                    cancelledOrder,
+                                                                                    items
+                                                                            )
+                                                                    )
                                                     )
                                     );
                         });
@@ -370,5 +402,43 @@ public class OrderServiceImpl implements OrderService {
         order.setUpdatedAt(OffsetDateTime.now());
 
         return orderRepository.save(order);
+    }
+
+    private OrderCreatedEvent toOrderCreatedEvent(
+            Order order,
+            List<OrderItem> items
+    ) {
+        List<OrderItemEvent> itemEvents =
+                items.stream()
+                        .map(item -> new OrderItemEvent(
+                                item.getProductId(),
+                                item.getQuantity(),
+                                item.getPrice()
+                        ))
+                        .toList();
+
+        return new OrderCreatedEvent(
+                order.getId(),
+                order.getUserId(),
+                order.getTotalAmount(),
+                itemEvents,
+                order.getCreatedAt()
+        );
+    }
+
+    private OrderConfirmedEvent toOrderConfirmedEvent(Order order) {
+        return new OrderConfirmedEvent(
+                order.getId(),
+                order.getUserId(),
+                OffsetDateTime.now()
+        );
+    }
+
+    private OrderCancelledEvent toOrderCancelledEvent(Order order) {
+        return new OrderCancelledEvent(
+                order.getId(),
+                order.getUserId(),
+                OffsetDateTime.now()
+        );
     }
 }
