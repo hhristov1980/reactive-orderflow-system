@@ -63,7 +63,7 @@ public class OrderServiceImpl implements OrderService {
                                         new UserNotFoundException(request.userId())
                                 );
                             }
-                            return buildOrderItemsAndUpdateStock(request.items())
+                            return buildOrderItems(request.items())
                                     .collectList()
                                     .flatMap(orderItems -> {
                                         BigDecimal totalAmount = calculateTotalAmount(orderItems);
@@ -249,6 +249,79 @@ public class OrderServiceImpl implements OrderService {
         return transactionalOperator.transactional(cancelFlow);
     }
 
+    @Override
+    public Mono<Void> confirmFromInventory(Long orderId) {
+        log.info("Confirming order from inventory event. orderId={}", orderId);
+
+        Mono<Void> flow =
+                orderRepository.findById(orderId)
+                        .switchIfEmpty(Mono.error(new OrderNotFoundException(orderId)))
+                        .flatMap(order -> {
+                            if (order.getStatus() != OrderStatus.CREATED) {
+                                log.warn(
+                                        "Order {} cannot be confirmed from inventory because status is {}",
+                                        orderId,
+                                        order.getStatus()
+                                );
+                                return Mono.empty();
+                            }
+
+                            order.setStatus(OrderStatus.CONFIRMED);
+                            order.setUpdatedAt(OffsetDateTime.now());
+
+                            return orderRepository.save(order);
+                        })
+                        .doOnSuccess(ignored ->
+                                log.info(
+                                        "Order confirmed from inventory event. orderId={}",
+                                        orderId
+                                )
+                        )
+                        .then();
+
+        return transactionalOperator.transactional(flow);
+    }
+
+    @Override
+    public Mono<Void> failFromInventory(
+            Long orderId,
+            String reason
+    ) {
+        log.info(
+                "Marking order as failed from inventory event. orderId={}, reason={}",
+                orderId,
+                reason
+        );
+
+        Mono<Void> flow =
+                orderRepository.findById(orderId)
+                        .switchIfEmpty(Mono.error(new OrderNotFoundException(orderId)))
+                        .flatMap(order -> {
+                            if (order.getStatus() != OrderStatus.CREATED) {
+                                log.warn(
+                                        "Order {} cannot be failed from inventory because status is {}",
+                                        orderId,
+                                        order.getStatus()
+                                );
+                                return Mono.empty();
+                            }
+
+                            order.setStatus(OrderStatus.FAILED);
+                            order.setUpdatedAt(OffsetDateTime.now());
+
+                            return orderRepository.save(order);
+                        })
+                        .doOnSuccess(ignored ->
+                                log.info(
+                                        "Order marked as FAILED from inventory event. orderId={}",
+                                        orderId
+                                )
+                        )
+                        .then();
+
+        return transactionalOperator.transactional(flow);
+    }
+
     private OrderItem toOrderItem(
             CreateOrderItemRequest request,
             Product product
@@ -321,27 +394,25 @@ public class OrderServiceImpl implements OrderService {
         );
     }
 
-    private Flux<OrderItem> buildOrderItemsAndUpdateStock(
+    private Flux<OrderItem> buildOrderItems(
             List<CreateOrderItemRequest> requests
     ) {
         return Flux.fromIterable(requests)
                 .flatMap(itemRequest ->
                         productRepository.findById(itemRequest.productId())
-                                .switchIfEmpty(Mono.error(
-                                        new ProductNotFoundException(itemRequest.productId())
-                                ))
-                                .flatMap(product -> {
-                                    validateStock(product, itemRequest.quantity());
-
-                                    product.setStock(
-                                            product.getStock() - itemRequest.quantity()
-                                    );
-
-                                    return productRepository.save(product)
-                                            .map(savedProduct ->
-                                                    toOrderItem(itemRequest, savedProduct)
-                                            );
-                                })
+                                .switchIfEmpty(
+                                        Mono.error(
+                                                new ProductNotFoundException(
+                                                        itemRequest.productId()
+                                                )
+                                        )
+                                )
+                                .map(product ->
+                                        toOrderItem(
+                                                itemRequest,
+                                                product
+                                        )
+                                )
                 );
     }
 

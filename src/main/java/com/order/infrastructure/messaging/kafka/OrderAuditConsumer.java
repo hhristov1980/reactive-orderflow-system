@@ -27,7 +27,7 @@ public class OrderAuditConsumer {
 
     @KafkaListener(
             topics = "#{@orderKafkaProperties.topics.orderCreated}",
-            groupId = "#{@orderKafkaProperties.consumerGroupId}",
+            groupId = "#{@orderKafkaProperties.consumerGroups.audit}",
             containerFactory = "kafkaListenerContainerFactory"
     )
     public void consumeOrderCreated(String payload) {
@@ -53,7 +53,7 @@ public class OrderAuditConsumer {
 
     @KafkaListener(
             topics = "#{@orderKafkaProperties.topics.orderConfirmed}",
-            groupId = "#{@orderKafkaProperties.consumerGroupId}",
+            groupId = "#{@orderKafkaProperties.consumerGroups.audit}",
             containerFactory = "kafkaListenerContainerFactory"
     )
     public void consumeOrderConfirmed(String payload) {
@@ -78,7 +78,7 @@ public class OrderAuditConsumer {
 
     @KafkaListener(
             topics = "#{@orderKafkaProperties.topics.orderCancelled}",
-            groupId = "#{@orderKafkaProperties.consumerGroupId}",
+            groupId = "#{@orderKafkaProperties.consumerGroups.audit}",
             containerFactory = "kafkaListenerContainerFactory"
     )
     public void consumeOrderCancelled(String payload) {

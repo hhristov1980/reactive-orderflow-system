@@ -23,16 +23,12 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConsumerFactory<String, String> consumerFactory() {
+
         Map<String, Object> config = new HashMap<>();
 
         config.put(
                 ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
                 kafkaProperties.getBootstrapServers()
-        );
-
-        config.put(
-                ConsumerConfig.GROUP_ID_CONFIG,
-                kafkaProperties.getConsumerGroupId()
         );
 
         config.put(

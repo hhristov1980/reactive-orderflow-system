@@ -36,10 +36,17 @@ logging:
 orderflow:
   kafka:
     bootstrap-servers: localhost:9092
-    consumer-group-id: orderflow-audit-service
     auto-offset-reset: earliest
+
+    consumer-groups:
+      audit: orderflow-audit-service
+      inventory: orderflow-inventory-service
+      order: orderflow-order-service
 
     topics:
       order-created: order.created
       order-confirmed: order.confirmed
       order-cancelled: order.cancelled
+      inventory-reserved: inventory.reserved
+      inventory-failed: inventory.failed
+      inventory-released: inventory.released

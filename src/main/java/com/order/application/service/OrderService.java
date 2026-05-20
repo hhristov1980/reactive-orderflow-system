@@ -23,4 +23,8 @@ public interface OrderService {
     Mono<OrderResponse> cancel(Long id);
 
     Mono<OrderResponse> confirm(Long id);
+
+    Mono<Void> confirmFromInventory(Long orderId);
+
+    Mono<Void> failFromInventory(Long orderId, String reason);
 }
