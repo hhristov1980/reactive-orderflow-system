@@ -12,9 +12,19 @@ import org.springframework.stereotype.Component;
 public class OrderKafkaProperties {
 
     private String bootstrapServers;
-    private String consumerGroupId;
     private String autoOffsetReset;
+
     private Topics topics = new Topics();
+    private ConsumerGroups consumerGroups = new ConsumerGroups();
+
+    @Getter
+    @Setter
+    public static class ConsumerGroups {
+
+        private String audit;
+        private String inventory;
+        private String order;
+    }
 
     @Getter
     @Setter
@@ -23,5 +33,8 @@ public class OrderKafkaProperties {
         private String orderCreated;
         private String orderConfirmed;
         private String orderCancelled;
+        private String inventoryReserved;
+        private String inventoryFailed;
+        private String inventoryReleased;
     }
 }

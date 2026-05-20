@@ -40,3 +40,12 @@ CREATE TABLE IF NOT EXISTS audit_events (
     payload TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     );
+
+CREATE TABLE IF NOT EXISTS inventory (
+    id BIGSERIAL PRIMARY KEY,
+    product_id BIGINT NOT NULL UNIQUE,
+    available_quantity INT NOT NULL,
+    reserved_quantity INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    );

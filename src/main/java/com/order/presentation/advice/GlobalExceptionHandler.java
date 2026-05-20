@@ -281,6 +281,24 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
+    @ExceptionHandler(InventoryNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleInventoryNotFound(
+            InventoryNotFoundException ex,
+            ServerHttpRequest request
+    ) {
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.name(),
+                ex.getMessage(),
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(response);
+    }
+
 
     private String extractBindingErrors(BindingResult bindingResult) {
         return bindingResult.getFieldErrors()
