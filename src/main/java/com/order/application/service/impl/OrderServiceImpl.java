@@ -277,6 +277,12 @@ public class OrderServiceImpl implements OrderService {
 
                             return orderRepository.save(order);
                         })
+                        .flatMap(savedOrder ->
+                                orderEventProducer
+                                        .publishOrderConfirmed(
+                                                toOrderConfirmedEvent(savedOrder)
+                                        )
+                        )
                         .doOnSuccess(ignored ->
                                 log.info(
                                         "Order confirmed from inventory event. orderId={}",
