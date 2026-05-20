@@ -12,10 +12,7 @@ import com.order.domain.entity.Product;
 import com.order.domain.enums.OrderSortField;
 import com.order.domain.enums.OrderStatus;
 import com.order.domain.enums.SortDirection;
-import com.order.domain.event.OrderCancelledEvent;
-import com.order.domain.event.OrderConfirmedEvent;
-import com.order.domain.event.OrderCreatedEvent;
-import com.order.domain.event.OrderItemEvent;
+import com.order.domain.event.*;
 import com.order.exception.*;
 import com.order.infrastructure.messaging.kafka.OrderEventProducer;
 import com.order.infrastructure.repository.OrderItemRepository;
@@ -224,16 +221,25 @@ public class OrderServiceImpl implements OrderService {
                                 );
                             }
 
+                            if (order.getStatus() == OrderStatus.FAILED) {
+                                return Mono.error(
+                                        new OrderCannotBeCancelledException(
+                                                id,
+                                                order.getStatus().name()
+                                        )
+                                );
+                            }
+
                             return orderItemRepository.findByOrderId(order.getId())
                                     .collectList()
                                     .flatMap(items ->
-                                            restoreStock(items)
-                                                    .then(updateOrderAsCancelled(order))
+                                            updateOrderAsCancelled(order)
                                                     .flatMap(cancelledOrder ->
                                                             orderEventProducer
                                                                     .publishOrderCancelled(
                                                                             toOrderCancelledEvent(
-                                                                                    cancelledOrder
+                                                                                    cancelledOrder,
+                                                                                    items
                                                                             )
                                                                     )
                                                                     .thenReturn(
@@ -505,11 +511,25 @@ public class OrderServiceImpl implements OrderService {
         );
     }
 
-    private OrderCancelledEvent toOrderCancelledEvent(Order order) {
+    private OrderCancelledEvent toOrderCancelledEvent(
+            Order order,
+            List<OrderItem> items
+    ) {
+        List<OrderItemEvent> itemEvents =
+                items.stream()
+                        .map(item -> new OrderItemEvent(
+                                item.getProductId(),
+                                item.getQuantity(),
+                                item.getPrice()
+                        ))
+                        .toList();
+
         return new OrderCancelledEvent(
                 order.getId(),
                 order.getUserId(),
+                itemEvents,
                 OffsetDateTime.now()
         );
     }
+
 }
