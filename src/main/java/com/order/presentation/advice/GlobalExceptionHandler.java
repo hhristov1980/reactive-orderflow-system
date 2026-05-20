@@ -299,6 +299,24 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
+    @ExceptionHandler(OrderCannotBeCancelledException.class)
+    public ResponseEntity<ErrorResponse> handleOrderCannotBeCancelled(
+            OrderCannotBeCancelledException ex,
+            ServerHttpRequest request
+    ) {
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.name(),
+                ex.getMessage(),
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
 
     private String extractBindingErrors(BindingResult bindingResult) {
         return bindingResult.getFieldErrors()

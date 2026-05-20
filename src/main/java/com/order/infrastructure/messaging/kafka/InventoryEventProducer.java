@@ -3,6 +3,7 @@ package com.order.infrastructure.messaging.kafka;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.order.domain.event.InventoryFailedEvent;
+import com.order.domain.event.InventoryReleasedEvent;
 import com.order.domain.event.InventoryReservedEvent;
 import com.order.infrastructure.config.properties.OrderKafkaProperties;
 import lombok.RequiredArgsConstructor;
@@ -63,6 +64,14 @@ public class InventoryEventProducer {
                         )
                 )
                 .then();
+    }
+
+    public Mono<Void> publishInventoryReleased(InventoryReleasedEvent event) {
+        return publish(
+                kafkaProperties.getTopics().getInventoryReleased(),
+                event.orderId().toString(),
+                event
+        );
     }
 
     private String toJson(Object event) {

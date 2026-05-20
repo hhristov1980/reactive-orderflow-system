@@ -6,10 +6,7 @@ import com.order.domain.dto.response.InventoryResponse;
 import com.order.domain.dto.response.PagedResponse;
 import com.order.domain.enums.InventorySortField;
 import com.order.domain.enums.SortDirection;
-import com.order.domain.event.InventoryReservedEvent;
-import com.order.domain.event.InventoryReservedItemEvent;
-import com.order.domain.event.OrderCreatedEvent;
-import com.order.domain.event.OrderItemEvent;
+import com.order.domain.event.*;
 import com.order.exception.InventoryNotFoundException;
 import com.order.exception.InventoryReservationException;
 import com.order.infrastructure.repository.InventoryRepository;
@@ -162,6 +159,83 @@ public class InventoryServiceImpl implements InventoryService {
                 })
                 .map(savedInventory ->
                         new InventoryReservedItemEvent(
+                                savedInventory.getProductId(),
+                                item.quantity()
+                        )
+                );
+    }
+
+    @Override
+    public Mono<InventoryReleasedEvent> release(OrderCancelledEvent event) {
+        log.info("Releasing inventory for cancelled orderId {}", event.orderId());
+
+        if (event.items() == null || event.items().isEmpty()) {
+            return Mono.error(
+                    new InventoryReservationException(
+                            "Cannot release inventory for order id: "
+                                    + event.orderId()
+                                    + ". Cancelled event does not contain order items."
+                    )
+            );
+        }
+
+        Mono<InventoryReleasedEvent> releaseFlow =
+                Flux.fromIterable(event.items())
+                        .flatMap(this::releaseSingleItem)
+                        .collectList()
+                        .map(releasedItems ->
+                                new InventoryReleasedEvent(
+                                        event.orderId(),
+                                        releasedItems,
+                                        OffsetDateTime.now()
+                                )
+                        );
+
+        return transactionalOperator.transactional(releaseFlow);
+    }
+
+    private Mono<InventoryReleasedItemEvent> releaseSingleItem(
+            OrderItemEvent item
+    ) {
+        return repository.findByProductId(item.productId())
+                .switchIfEmpty(
+                        Mono.error(
+                                new InventoryReservationException(
+                                        "Inventory not found for product id: " + item.productId()
+                                )
+                        )
+                )
+                .flatMap(inventory -> {
+                    int reservedQuantity =
+                            inventory.getReservedQuantity();
+
+                    if (reservedQuantity < item.quantity()) {
+                        return Mono.error(
+                                new InventoryReservationException(
+                                        "Cannot release inventory for product id: "
+                                                + item.productId()
+                                                + ". Requested release: "
+                                                + item.quantity()
+                                                + ", reserved: "
+                                                + reservedQuantity
+                                )
+                        );
+                    }
+
+                    inventory.setAvailableQuantity(
+                            inventory.getAvailableQuantity() + item.quantity()
+                    );
+
+                    inventory.setReservedQuantity(
+                            inventory.getReservedQuantity() - item.quantity()
+                    );
+
+                    inventory.setUpdatedAt(OffsetDateTime.now());
+
+                    return repository.save(inventory);
+                })
+                .map(savedInventory ->
+                        new InventoryReleasedItemEvent(
                                 savedInventory.getProductId(),
                                 item.quantity()
                         )
