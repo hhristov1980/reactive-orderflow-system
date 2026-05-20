@@ -1,0 +1,8 @@
+package com.order.exception;
+
+public class ShipmentAlreadyExistsException extends RuntimeException {
+
+    public ShipmentAlreadyExistsException(Long orderId) {
+        super("Shipment already exists for order id: " + orderId);
+    }
+}

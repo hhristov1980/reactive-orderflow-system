@@ -38,10 +38,15 @@ orderflow:
     bootstrap-servers: localhost:9092
     auto-offset-reset: earliest
 
+    topic-settings:
+      partitions: 1
+      replicas: 1
+
     consumer-groups:
       audit: orderflow-audit-service
       inventory: orderflow-inventory-service
       order: orderflow-order-service
+      shipment: orderflow-shipment-service
 
     topics:
       order-created: order.created
@@ -50,3 +55,6 @@ orderflow:
       inventory-reserved: inventory.reserved
       inventory-failed: inventory.failed
       inventory-released: inventory.released
+      shipment-created: shipment.created
+      shipment-shipped: shipment.shipped
+      shipment-delivered: shipment.delivered

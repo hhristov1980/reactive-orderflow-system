@@ -14,8 +14,17 @@ public class OrderKafkaProperties {
     private String bootstrapServers;
     private String autoOffsetReset;
 
-    private Topics topics = new Topics();
+    private TopicSettings topicSettings = new TopicSettings();
     private ConsumerGroups consumerGroups = new ConsumerGroups();
+    private Topics topics = new Topics();
+
+    @Getter
+    @Setter
+    public static class TopicSettings {
+
+        private Integer partitions;
+        private Short replicas;
+    }
 
     @Getter
     @Setter
@@ -24,6 +33,7 @@ public class OrderKafkaProperties {
         private String audit;
         private String inventory;
         private String order;
+        private String shipment;
     }
 
     @Getter
@@ -33,8 +43,13 @@ public class OrderKafkaProperties {
         private String orderCreated;
         private String orderConfirmed;
         private String orderCancelled;
+
         private String inventoryReserved;
         private String inventoryFailed;
         private String inventoryReleased;
+
+        private String shipmentCreated;
+        private String shipmentShipped;
+        private String shipmentDelivered;
     }
 }

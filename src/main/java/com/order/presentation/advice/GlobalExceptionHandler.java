@@ -317,6 +317,47 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
+    @ExceptionHandler({
+            ShipmentNotFoundException.class,
+            ShipmentForOrderNotFoundException.class
+    })
+    public ResponseEntity<ErrorResponse> handleShipmentNotFound(
+            RuntimeException ex,
+            ServerHttpRequest request
+    ) {
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.name(),
+                ex.getMessage(),
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(response);
+    }
+
+    @ExceptionHandler({
+            ShipmentAlreadyExistsException.class,
+            ShipmentInvalidStatusTransitionException.class
+    })
+    public ResponseEntity<ErrorResponse> handleShipmentConflict(
+            RuntimeException ex,
+            ServerHttpRequest request
+    ) {
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.name(),
+                ex.getMessage(),
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
 
     private String extractBindingErrors(BindingResult bindingResult) {
         return bindingResult.getFieldErrors()
