@@ -428,6 +428,60 @@ public class OrderServiceImpl implements OrderService {
                 );
     }
 
+    @Override
+    public Mono<Void> cancelFromPaymentFailure(
+            Long orderId,
+            String reason
+    ) {
+        log.info(
+                "Cancelling order from payment failure. orderId={}, reason={}",
+                orderId,
+                reason
+        );
+
+        Mono<Void> flow =
+                orderRepository.findById(orderId)
+                        .switchIfEmpty(Mono.error(new OrderNotFoundException(orderId)))
+                        .flatMap(order -> {
+                            if (order.getStatus() == OrderStatus.CANCELLED) {
+                                log.warn(
+                                        "Order {} is already cancelled. Skipping payment failure cancellation.",
+                                        orderId
+                                );
+                                return Mono.empty();
+                            }
+
+                            if (order.getStatus() == OrderStatus.FAILED) {
+                                log.warn(
+                                        "Order {} is already failed. Skipping payment failure cancellation.",
+                                        orderId
+                                );
+                                return Mono.empty();
+                            }
+
+                            return orderItemRepository.findByOrderId(order.getId())
+                                    .collectList()
+                                    .flatMap(items -> {
+                                        order.setStatus(OrderStatus.CANCELLED);
+                                        order.setUpdatedAt(OffsetDateTime.now());
+
+                                        return orderRepository.save(order)
+                                                .flatMap(cancelledOrder ->
+                                                        orderEventProducer
+                                                                .publishOrderCancelled(
+                                                                        toOrderCancelledEvent(
+                                                                                cancelledOrder,
+                                                                                items
+                                                                        )
+                                                                )
+                                                );
+                                    });
+                        })
+                        .then();
+
+        return transactionalOperator.transactional(flow);
+    }
+
     private void validateStock(
             Product product,
             Integer requestedQuantity
@@ -513,6 +567,7 @@ public class OrderServiceImpl implements OrderService {
         return new OrderConfirmedEvent(
                 order.getId(),
                 order.getUserId(),
+                order.getTotalAmount(),
                 OffsetDateTime.now()
         );
     }

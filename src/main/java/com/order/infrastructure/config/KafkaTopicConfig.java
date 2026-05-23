@@ -58,6 +58,26 @@ public class KafkaTopicConfig {
         return topic(kafkaProperties.getTopics().getShipmentDelivered());
     }
 
+    @Bean
+    public NewTopic paymentCreatedTopic() {
+        return topic(kafkaProperties.getTopics().getPaymentCreated());
+    }
+
+    @Bean
+    public NewTopic paymentCompletedTopic() {
+        return topic(kafkaProperties.getTopics().getPaymentCompleted());
+    }
+
+    @Bean
+    public NewTopic paymentFailedTopic() {
+        return topic(kafkaProperties.getTopics().getPaymentFailed());
+    }
+
+    @Bean
+    public NewTopic paymentExpiredTopic() {
+        return topic(kafkaProperties.getTopics().getPaymentExpired());
+    }
+
     private NewTopic topic(String name) {
         return TopicBuilder.name(name)
                 .partitions(kafkaProperties.getTopicSettings().getPartitions())
