@@ -2,11 +2,12 @@ package com.order.application.service;
 
 import com.order.domain.dto.response.ShipmentResponse;
 import com.order.domain.event.OrderConfirmedEvent;
+import com.order.domain.event.PaymentCompletedEvent;
 import reactor.core.publisher.Mono;
 
 public interface ShipmentService {
 
-    Mono<ShipmentResponse> createFromOrderConfirmed(OrderConfirmedEvent event);
+    Mono<ShipmentResponse> createFromPaymentCompleted(PaymentCompletedEvent event);
 
     Mono<ShipmentResponse> getById(Long id);
 

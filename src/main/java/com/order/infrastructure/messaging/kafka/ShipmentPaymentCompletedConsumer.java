@@ -3,7 +3,7 @@
 //import com.fasterxml.jackson.core.JsonProcessingException;
 //import com.fasterxml.jackson.databind.ObjectMapper;
 //import com.order.application.service.ShipmentService;
-//import com.order.domain.event.OrderConfirmedEvent;
+//import com.order.domain.event.PaymentCompletedEvent;
 //import lombok.RequiredArgsConstructor;
 //import lombok.extern.slf4j.Slf4j;
 //import org.springframework.kafka.annotation.KafkaListener;
@@ -13,29 +13,29 @@
 //@Component
 //@RequiredArgsConstructor
 //@Slf4j
-//public class ShipmentOrderConfirmedConsumer {
+//public class ShipmentPaymentCompletedConsumer {
 //
 //    private final ObjectMapper objectMapper;
 //    private final ShipmentService shipmentService;
 //
 //    @KafkaListener(
-//            topics = "#{@orderKafkaProperties.topics.orderConfirmed}",
+//            topics = "#{@orderKafkaProperties.topics.paymentCompleted}",
 //            groupId = "#{@orderKafkaProperties.consumerGroups.shipment}",
 //            containerFactory = "kafkaListenerContainerFactory"
 //    )
-//    public void consumeOrderConfirmed(String payload) {
-//        OrderConfirmedEvent event =
-//                readEvent(payload, OrderConfirmedEvent.class);
+//    public void consumePaymentCompleted(String payload) {
+//        PaymentCompletedEvent event =
+//                readEvent(payload, PaymentCompletedEvent.class);
 //
 //        log.info(
-//                "SHIPMENT: Received order.confirmed for orderId={}",
+//                "SHIPMENT: Received payment.completed for orderId={}",
 //                event.orderId()
 //        );
 //
-//        shipmentService.createFromOrderConfirmed(event)
+//        shipmentService.createFromPaymentCompleted(event)
 //                .doOnError(error ->
 //                        log.error(
-//                                "SHIPMENT: Failed to create shipment for orderId={}",
+//                                "SHIPMENT: Failed to create shipment for paid orderId={}",
 //                                event.orderId(),
 //                                error
 //                        )
@@ -52,7 +52,7 @@
 //            return objectMapper.readValue(payload, eventType);
 //        } catch (JsonProcessingException ex) {
 //            throw new IllegalArgumentException(
-//                    "Failed to deserialize order.confirmed payload: " + payload,
+//                    "Failed to deserialize payment.completed payload: " + payload,
 //                    ex
 //            );
 //        }

@@ -47,6 +47,7 @@ orderflow:
       inventory: orderflow-inventory-service
       order: orderflow-order-service
       shipment: orderflow-shipment-service
+      payment: orderflow-payment-service
 
     topics:
       order-created: order.created
@@ -58,3 +59,19 @@ orderflow:
       shipment-created: shipment.created
       shipment-shipped: shipment.shipped
       shipment-delivered: shipment.delivered
+      payment-created: payment.created
+      payment-completed: payment.completed
+      payment-failed: payment.failed
+      payment-expired: payment.expired
+
+  payment:
+    simulation:
+      enabled: true
+      success-rate: 100
+      provider: MOCK_PAYMENT_PROVIDER
+
+  scheduler:
+    unpaid-payments:
+      enabled: true
+      expiration-days: 3
+      fixed-delay-ms: 3600000

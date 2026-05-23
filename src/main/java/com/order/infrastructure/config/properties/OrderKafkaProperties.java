@@ -34,6 +34,7 @@ public class OrderKafkaProperties {
         private String inventory;
         private String order;
         private String shipment;
+        private String payment;
     }
 
     @Getter
@@ -51,5 +52,10 @@ public class OrderKafkaProperties {
         private String shipmentCreated;
         private String shipmentShipped;
         private String shipmentDelivered;
+
+        private String paymentCreated;
+        private String paymentCompleted;
+        private String paymentFailed;
+        private String paymentExpired;
     }
 }

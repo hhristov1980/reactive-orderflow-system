@@ -60,4 +60,19 @@ CREATE TABLE IF NOT EXISTS shipments (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     shipped_at TIMESTAMP WITH TIME ZONE,
     delivered_at TIMESTAMP WITH TIME ZONE
-        );
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+    id BIGSERIAL PRIMARY KEY,
+    order_id BIGINT NOT NULL UNIQUE,
+    status VARCHAR(50) NOT NULL,
+    amount DECIMAL NOT NULL,
+    provider VARCHAR(100) NOT NULL,
+    transaction_id VARCHAR(150),
+    failure_reason TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    paid_at TIMESTAMP WITH TIME ZONE,
+    failed_at TIMESTAMP WITH TIME ZONE,
+    expired_at TIMESTAMP WITH TIME ZONE
+);

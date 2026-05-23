@@ -5,10 +5,7 @@ import com.order.application.service.ShipmentService;
 import com.order.domain.dto.response.ShipmentResponse;
 import com.order.domain.entity.Shipment;
 import com.order.domain.enums.ShipmentStatus;
-import com.order.domain.event.OrderConfirmedEvent;
-import com.order.domain.event.ShipmentCreatedEvent;
-import com.order.domain.event.ShipmentDeliveredEvent;
-import com.order.domain.event.ShipmentShippedEvent;
+import com.order.domain.event.*;
 import com.order.exception.ShipmentAlreadyExistsException;
 import com.order.exception.ShipmentForOrderNotFoundException;
 import com.order.exception.ShipmentInvalidStatusTransitionException;
@@ -35,8 +32,8 @@ public class ShipmentServiceImpl implements ShipmentService {
     private final ShipmentEventProducer producer;
 
     @Override
-    public Mono<ShipmentResponse> createFromOrderConfirmed(OrderConfirmedEvent event) {
-        log.info("Creating shipment for confirmed orderId={}", event.orderId());
+    public Mono<ShipmentResponse> createFromPaymentCompleted(PaymentCompletedEvent event) {
+        log.info("Creating shipment for paid orderId={}", event.orderId());
 
         return repository.existsByOrderId(event.orderId())
                 .flatMap(exists -> {

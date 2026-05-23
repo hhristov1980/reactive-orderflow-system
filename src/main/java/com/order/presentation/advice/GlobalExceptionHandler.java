@@ -359,6 +359,48 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
+    @ExceptionHandler({
+            PaymentNotFoundException.class,
+            PaymentForOrderNotFoundException.class
+    })
+    public ResponseEntity<ErrorResponse> handlePaymentNotFound(
+            RuntimeException ex,
+            ServerHttpRequest request
+    ) {
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.name(),
+                ex.getMessage(),
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(response);
+    }
+
+    @ExceptionHandler({
+            PaymentAlreadyExistsException.class,
+            PaymentInvalidStatusTransitionException.class
+    })
+    public ResponseEntity<ErrorResponse> handlePaymentConflict(
+            RuntimeException ex,
+            ServerHttpRequest request
+    ) {
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.name(),
+                ex.getMessage(),
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
     private String extractBindingErrors(BindingResult bindingResult) {
         return bindingResult.getFieldErrors()
                 .stream()
