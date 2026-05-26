@@ -70,6 +70,10 @@ orderflow:
       success-rate: 100
       provider: MOCK_PAYMENT_PROVIDER
 
+  reports:
+    dashboard:
+      top-products-limit: 5
+
   scheduler:
     unpaid-payments:
       enabled: true
