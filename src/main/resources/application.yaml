@@ -1,81 +1,88 @@
 server:
-  port: 8081
+  port: ${SERVER_PORT:8081}
 
 spring:
   application:
-    name: Order
+    name: ${SPRING_APPLICATION_NAME:Order}
 
   r2dbc:
-    url: r2dbc:postgresql://localhost:5433/orderflow
-    username: postgres
-    password: postgres
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5433/orderflow}
+    username: ${SPRING_R2DBC_USERNAME:postgres}
+    password: ${SPRING_R2DBC_PASSWORD:postgres}
 
   sql:
     init:
-      mode: never
+      mode: ${SPRING_SQL_INIT_MODE:never}
+
+  docker:
+    compose:
+      enabled: ${SPRING_DOCKER_COMPOSE_ENABLED:true}
 
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
     consumer:
-      group-id: orderflow-audit-service
-      auto-offset-reset: earliest
+      auto-offset-reset: ${SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET:earliest}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}
+
 logging:
   level:
-    org.springframework.r2dbc: DEBUG
-    org.springframework.kafka: INFO
-    org.apache.kafka: WARN
+    root: ${LOGGING_LEVEL_ROOT:INFO}
+    org.springframework.r2dbc: ${LOGGING_LEVEL_R2DBC:DEBUG}
+    org.springframework.kafka: ${LOGGING_LEVEL_KAFKA:INFO}
+    org.apache.kafka: ${LOGGING_LEVEL_APACHE_KAFKA:WARN}
 
 orderflow:
   kafka:
-    bootstrap-servers: localhost:9092
-    auto-offset-reset: earliest
+    bootstrap-servers: ${ORDERFLOW_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    auto-offset-reset: ${ORDERFLOW_KAFKA_AUTO_OFFSET_RESET:earliest}
 
     topic-settings:
-      partitions: 1
-      replicas: 1
+      partitions: ${ORDERFLOW_KAFKA_TOPIC_PARTITIONS:1}
+      replicas: ${ORDERFLOW_KAFKA_TOPIC_REPLICAS:1}
 
     consumer-groups:
-      audit: orderflow-audit-service
-      inventory: orderflow-inventory-service
-      order: orderflow-order-service
-      shipment: orderflow-shipment-service
-      payment: orderflow-payment-service
+      audit: ${ORDERFLOW_KAFKA_GROUP_AUDIT:orderflow-audit-service}
+      inventory: ${ORDERFLOW_KAFKA_GROUP_INVENTORY:orderflow-inventory-service}
+      order: ${ORDERFLOW_KAFKA_GROUP_ORDER:orderflow-order-service}
+      shipment: ${ORDERFLOW_KAFKA_GROUP_SHIPMENT:orderflow-shipment-service}
+      payment: ${ORDERFLOW_KAFKA_GROUP_PAYMENT:orderflow-payment-service}
 
     topics:
-      order-created: order.created
-      order-confirmed: order.confirmed
-      order-cancelled: order.cancelled
-      inventory-reserved: inventory.reserved
-      inventory-failed: inventory.failed
-      inventory-released: inventory.released
-      shipment-created: shipment.created
-      shipment-shipped: shipment.shipped
-      shipment-delivered: shipment.delivered
-      payment-created: payment.created
-      payment-completed: payment.completed
-      payment-failed: payment.failed
-      payment-expired: payment.expired
+      order-created: ${ORDERFLOW_TOPIC_ORDER_CREATED:order.created}
+      order-confirmed: ${ORDERFLOW_TOPIC_ORDER_CONFIRMED:order.confirmed}
+      order-cancelled: ${ORDERFLOW_TOPIC_ORDER_CANCELLED:order.cancelled}
 
-  payment:
-    simulation:
-      enabled: true
-      success-rate: 100
-      provider: MOCK_PAYMENT_PROVIDER
+      inventory-reserved: ${ORDERFLOW_TOPIC_INVENTORY_RESERVED:inventory.reserved}
+      inventory-failed: ${ORDERFLOW_TOPIC_INVENTORY_FAILED:inventory.failed}
+      inventory-released: ${ORDERFLOW_TOPIC_INVENTORY_RELEASED:inventory.released}
+
+      payment-created: ${ORDERFLOW_TOPIC_PAYMENT_CREATED:payment.created}
+      payment-completed: ${ORDERFLOW_TOPIC_PAYMENT_COMPLETED:payment.completed}
+      payment-failed: ${ORDERFLOW_TOPIC_PAYMENT_FAILED:payment.failed}
+      payment-expired: ${ORDERFLOW_TOPIC_PAYMENT_EXPIRED:payment.expired}
+
+      shipment-created: ${ORDERFLOW_TOPIC_SHIPMENT_CREATED:shipment.created}
+      shipment-shipped: ${ORDERFLOW_TOPIC_SHIPMENT_SHIPPED:shipment.shipped}
+      shipment-delivered: ${ORDERFLOW_TOPIC_SHIPMENT_DELIVERED:shipment.delivered}
 
   reports:
     dashboard:
-      top-products-limit: 5
+      top-products-limit: ${ORDERFLOW_REPORTS_DASHBOARD_TOP_PRODUCTS_LIMIT:5}
 
   scheduler:
     unpaid-payments:
-      enabled: true
-      expiration-days: 3
-      fixed-delay-ms: 3600000
+      enabled: ${ORDERFLOW_SCHEDULER_UNPAID_PAYMENTS_ENABLED:true}
+      expiration-days: ${ORDERFLOW_SCHEDULER_UNPAID_PAYMENTS_EXPIRATION_DAYS:3}
+      fixed-delay-ms: ${ORDERFLOW_SCHEDULER_UNPAID_PAYMENTS_FIXED_DELAY_MS:3600000}
