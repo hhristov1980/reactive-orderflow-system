@@ -1,6 +1,7 @@
 package com.order.application.service.impl;
 
 import com.order.application.service.OrderService;
+import com.order.application.service.OutboxService;
 import com.order.domain.dto.request.CreateOrderRequest;
 import com.order.domain.dto.request.CreateOrderItemRequest;
 import com.order.domain.dto.response.OrderItemResponse;
@@ -14,6 +15,7 @@ import com.order.domain.enums.OrderStatus;
 import com.order.domain.enums.SortDirection;
 import com.order.domain.event.*;
 import com.order.exception.*;
+import com.order.infrastructure.config.properties.OrderKafkaProperties;
 import com.order.infrastructure.messaging.kafka.OrderEventProducer;
 import com.order.infrastructure.repository.OrderItemRepository;
 import com.order.infrastructure.repository.OrderRepository;
@@ -45,6 +47,13 @@ public class OrderServiceImpl implements OrderService {
     private final OrderCustomRepository customRepository;
     private final TransactionalOperator transactionalOperator;
     private final OrderEventProducer orderEventProducer;
+    private final OutboxService outboxService;
+    private final OrderKafkaProperties kafkaProperties;
+
+    private static final String AGGREGATE_TYPE_ORDER = "ORDER";
+    private static final String EVENT_TYPE_ORDER_CREATED = "ORDER_CREATED";
+    private static final String EVENT_TYPE_ORDER_CONFIRMED = "ORDER_CONFIRMED";
+    private static final String EVENT_TYPE_ORDER_CANCELLED = "ORDER_CANCELLED";
 
     @Override
     public Mono<OrderResponse> create(CreateOrderRequest request) {
@@ -70,8 +79,13 @@ public class OrderServiceImpl implements OrderService {
                                                         saveOrderItems(savedOrder, orderItems)
                                                                 .collectList()
                                                                 .flatMap(savedItems ->
-                                                                        orderEventProducer
-                                                                                .publishOrderCreated(
+                                                                        outboxService
+                                                                                .saveEvent(
+                                                                                        AGGREGATE_TYPE_ORDER,
+                                                                                        savedOrder.getId(),
+                                                                                        EVENT_TYPE_ORDER_CREATED,
+                                                                                        kafkaProperties.getTopics().getOrderCreated(),
+                                                                                        savedOrder.getId().toString(),
                                                                                         toOrderCreatedEvent(
                                                                                                 savedOrder,
                                                                                                 savedItems
@@ -235,8 +249,13 @@ public class OrderServiceImpl implements OrderService {
                                     .flatMap(items ->
                                             updateOrderAsCancelled(order)
                                                     .flatMap(cancelledOrder ->
-                                                            orderEventProducer
-                                                                    .publishOrderCancelled(
+                                                            outboxService
+                                                                    .saveEvent(
+                                                                            AGGREGATE_TYPE_ORDER,
+                                                                            cancelledOrder.getId(),
+                                                                            EVENT_TYPE_ORDER_CANCELLED,
+                                                                            kafkaProperties.getTopics().getOrderCancelled(),
+                                                                            cancelledOrder.getId().toString(),
                                                                             toOrderCancelledEvent(
                                                                                     cancelledOrder,
                                                                                     items
@@ -278,14 +297,18 @@ public class OrderServiceImpl implements OrderService {
                             return orderRepository.save(order);
                         })
                         .flatMap(savedOrder ->
-                                orderEventProducer
-                                        .publishOrderConfirmed(
-                                                toOrderConfirmedEvent(savedOrder)
-                                        )
+                                outboxService.saveEvent(
+                                        AGGREGATE_TYPE_ORDER,
+                                        savedOrder.getId(),
+                                        EVENT_TYPE_ORDER_CONFIRMED,
+                                        kafkaProperties.getTopics().getOrderConfirmed(),
+                                        savedOrder.getId().toString(),
+                                        toOrderConfirmedEvent(savedOrder)
+                                )
                         )
                         .doOnSuccess(ignored ->
                                 log.info(
-                                        "Order confirmed from inventory event. orderId={}",
+                                        "Order confirmed from inventory event and outbox event saved. orderId={}",
                                         orderId
                                 )
                         )
@@ -467,13 +490,17 @@ public class OrderServiceImpl implements OrderService {
 
                                         return orderRepository.save(order)
                                                 .flatMap(cancelledOrder ->
-                                                        orderEventProducer
-                                                                .publishOrderCancelled(
-                                                                        toOrderCancelledEvent(
-                                                                                cancelledOrder,
-                                                                                items
-                                                                        )
+                                                        outboxService.saveEvent(
+                                                                AGGREGATE_TYPE_ORDER,
+                                                                cancelledOrder.getId(),
+                                                                EVENT_TYPE_ORDER_CANCELLED,
+                                                                kafkaProperties.getTopics().getOrderCancelled(),
+                                                                cancelledOrder.getId().toString(),
+                                                                toOrderCancelledEvent(
+                                                                        cancelledOrder,
+                                                                        items
                                                                 )
+                                                        )
                                                 );
                                     });
                         })
