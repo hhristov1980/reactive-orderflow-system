@@ -79,3 +79,7 @@ orderflow:
       enabled: true
       expiration-days: 3
       fixed-delay-ms: 3600000
+    outbox:
+      enabled: true
+      fixed-delay-ms: 5000
+      max-retries: 5

@@ -76,3 +76,25 @@ CREATE TABLE IF NOT EXISTS payments (
     failed_at TIMESTAMP WITH TIME ZONE,
     expired_at TIMESTAMP WITH TIME ZONE
 );
+
+CREATE TABLE IF NOT EXISTS outbox_events (
+    id BIGSERIAL PRIMARY KEY,
+    aggregate_type VARCHAR(100) NOT NULL,
+    aggregate_id BIGINT NOT NULL,
+    event_type VARCHAR(150) NOT NULL,
+    topic VARCHAR(150) NOT NULL,
+    event_key VARCHAR(150) NOT NULL,
+    payload TEXT NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    retry_count INT NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    published_at TIMESTAMP WITH TIME ZONE
+    );
+
+CREATE INDEX IF NOT EXISTS idx_outbox_events_status_created_at
+    ON outbox_events (status, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_outbox_events_status_retry_created_at
+    ON outbox_events (status, retry_count, created_at);

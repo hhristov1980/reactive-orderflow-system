@@ -1,6 +1,7 @@
 package com.order.application.service.impl;
 
 import com.order.application.mapper.PaymentMapper;
+import com.order.application.service.OutboxService;
 import com.order.application.service.PaymentService;
 import com.order.domain.dto.response.PaymentResponse;
 import com.order.domain.entity.Payment;
@@ -10,11 +11,13 @@ import com.order.exception.PaymentAlreadyExistsException;
 import com.order.exception.PaymentForOrderNotFoundException;
 import com.order.exception.PaymentInvalidStatusTransitionException;
 import com.order.exception.PaymentNotFoundException;
+import com.order.infrastructure.config.properties.OrderKafkaProperties;
 import com.order.infrastructure.messaging.kafka.PaymentEventProducer;
 import com.order.infrastructure.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 import java.time.OffsetDateTime;
@@ -26,10 +29,18 @@ import java.util.UUID;
 public class PaymentServiceImpl implements PaymentService {
 
     private static final String DEFAULT_PROVIDER = "MOCK_PAYMENT_PROVIDER";
+    private static final String AGGREGATE_TYPE_PAYMENT = "PAYMENT";
+    private static final String EVENT_TYPE_PAYMENT_CREATED = "PAYMENT_CREATED";
+    private static final String EVENT_TYPE_PAYMENT_COMPLETED = "PAYMENT_COMPLETED";
+    private static final String EVENT_TYPE_PAYMENT_FAILED = "PAYMENT_FAILED";
+    private static final String EVENT_TYPE_PAYMENT_EXPIRED = "PAYMENT_EXPIRED";
 
     private final PaymentRepository repository;
     private final PaymentMapper mapper;
     private final PaymentEventProducer producer;
+    private final OutboxService outboxService;
+    private final OrderKafkaProperties kafkaProperties;
+    private final TransactionalOperator transactionalOperator;
 
     @Override
     public Mono<PaymentResponse> createFromOrderConfirmed(OrderConfirmedEvent event) {
@@ -44,25 +55,33 @@ public class PaymentServiceImpl implements PaymentService {
             );
         }
 
-        return repository.existsByOrderId(event.orderId())
-                .flatMap(exists -> {
-                    if (exists) {
-                        return Mono.error(
-                                new PaymentAlreadyExistsException(event.orderId())
-                        );
-                    }
+        Mono<PaymentResponse> flow =
+                repository.existsByOrderId(event.orderId())
+                        .flatMap(exists -> {
+                            if (exists) {
+                                return Mono.error(
+                                        new PaymentAlreadyExistsException(event.orderId())
+                                );
+                            }
 
-                    Payment payment = buildPayment(event);
+                            Payment payment = buildPayment(event);
 
-                    return repository.save(payment);
-                })
-                .flatMap(savedPayment ->
-                        producer.publishPaymentCreated(
-                                        toPaymentCreatedEvent(savedPayment)
-                                )
-                                .thenReturn(savedPayment)
-                )
-                .map(mapper::toResponse);
+                            return repository.save(payment);
+                        })
+                        .flatMap(savedPayment ->
+                                outboxService.saveEvent(
+                                                AGGREGATE_TYPE_PAYMENT,
+                                                savedPayment.getId(),
+                                                EVENT_TYPE_PAYMENT_CREATED,
+                                                kafkaProperties.getTopics().getPaymentCreated(),
+                                                savedPayment.getOrderId().toString(),
+                                                toPaymentCreatedEvent(savedPayment)
+                                        )
+                                        .thenReturn(savedPayment)
+                        )
+                        .map(mapper::toResponse);
+
+        return transactionalOperator.transactional(flow);
     }
 
     @Override
@@ -87,66 +106,82 @@ public class PaymentServiceImpl implements PaymentService {
     public Mono<PaymentResponse> complete(Long id) {
         log.info("Completing payment with id={}", id);
 
-        return repository.findById(id)
-                .switchIfEmpty(Mono.error(new PaymentNotFoundException(id)))
-                .flatMap(payment -> {
-                    if (payment.getStatus() != PaymentStatus.PENDING) {
-                        return Mono.error(
-                                new PaymentInvalidStatusTransitionException(
-                                        id,
-                                        payment.getStatus().name(),
-                                        PaymentStatus.COMPLETED.name()
-                                )
-                        );
-                    }
+        Mono<PaymentResponse> flow =
+                repository.findById(id)
+                        .switchIfEmpty(Mono.error(new PaymentNotFoundException(id)))
+                        .flatMap(payment -> {
+                            if (payment.getStatus() != PaymentStatus.PENDING) {
+                                return Mono.error(
+                                        new PaymentInvalidStatusTransitionException(
+                                                id,
+                                                payment.getStatus().name(),
+                                                PaymentStatus.COMPLETED.name()
+                                        )
+                                );
+                            }
 
-                    payment.setStatus(PaymentStatus.COMPLETED);
-                    payment.setTransactionId(generateTransactionId());
-                    payment.setPaidAt(OffsetDateTime.now());
-                    payment.setUpdatedAt(OffsetDateTime.now());
+                            payment.setStatus(PaymentStatus.COMPLETED);
+                            payment.setTransactionId(generateTransactionId());
+                            payment.setPaidAt(OffsetDateTime.now());
+                            payment.setUpdatedAt(OffsetDateTime.now());
 
-                    return repository.save(payment);
-                })
-                .flatMap(savedPayment ->
-                        producer.publishPaymentCompleted(
-                                        toPaymentCompletedEvent(savedPayment)
-                                )
-                                .thenReturn(savedPayment)
-                )
-                .map(mapper::toResponse);
+                            return repository.save(payment);
+                        })
+                        .flatMap(savedPayment ->
+                                outboxService.saveEvent(
+                                                AGGREGATE_TYPE_PAYMENT,
+                                                savedPayment.getId(),
+                                                EVENT_TYPE_PAYMENT_COMPLETED,
+                                                kafkaProperties.getTopics().getPaymentCompleted(),
+                                                savedPayment.getOrderId().toString(),
+                                                toPaymentCompletedEvent(savedPayment)
+                                        )
+                                        .thenReturn(savedPayment)
+                        )
+                        .map(mapper::toResponse);
+
+        return transactionalOperator.transactional(flow);
     }
 
     @Override
     public Mono<PaymentResponse> fail(Long id, String reason) {
         log.info("Failing payment with id={}, reason={}", id, reason);
 
-        return repository.findById(id)
-                .switchIfEmpty(Mono.error(new PaymentNotFoundException(id)))
-                .flatMap(payment -> {
-                    if (payment.getStatus() != PaymentStatus.PENDING) {
-                        return Mono.error(
-                                new PaymentInvalidStatusTransitionException(
-                                        id,
-                                        payment.getStatus().name(),
-                                        PaymentStatus.FAILED.name()
-                                )
-                        );
-                    }
+        Mono<PaymentResponse> flow =
+                repository.findById(id)
+                        .switchIfEmpty(Mono.error(new PaymentNotFoundException(id)))
+                        .flatMap(payment -> {
+                            if (payment.getStatus() != PaymentStatus.PENDING) {
+                                return Mono.error(
+                                        new PaymentInvalidStatusTransitionException(
+                                                id,
+                                                payment.getStatus().name(),
+                                                PaymentStatus.FAILED.name()
+                                        )
+                                );
+                            }
 
-                    payment.setStatus(PaymentStatus.FAILED);
-                    payment.setFailureReason(reason);
-                    payment.setFailedAt(OffsetDateTime.now());
-                    payment.setUpdatedAt(OffsetDateTime.now());
+                            payment.setStatus(PaymentStatus.FAILED);
+                            payment.setFailureReason(reason);
+                            payment.setFailedAt(OffsetDateTime.now());
+                            payment.setUpdatedAt(OffsetDateTime.now());
 
-                    return repository.save(payment);
-                })
-                .flatMap(savedPayment ->
-                        producer.publishPaymentFailed(
-                                        toPaymentFailedEvent(savedPayment)
-                                )
-                                .thenReturn(savedPayment)
-                )
-                .map(mapper::toResponse);
+                            return repository.save(payment);
+                        })
+                        .flatMap(savedPayment ->
+                                outboxService.saveEvent(
+                                                AGGREGATE_TYPE_PAYMENT,
+                                                savedPayment.getId(),
+                                                EVENT_TYPE_PAYMENT_FAILED,
+                                                kafkaProperties.getTopics().getPaymentFailed(),
+                                                savedPayment.getOrderId().toString(),
+                                                toPaymentFailedEvent(savedPayment)
+                                        )
+                                        .thenReturn(savedPayment)
+                        )
+                        .map(mapper::toResponse);
+
+        return transactionalOperator.transactional(flow);
     }
 
     @Override
@@ -166,6 +201,12 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private Mono<Payment> expirePayment(Payment payment) {
+        Mono<Payment> flow = expirePaymentInternal(payment);
+
+        return transactionalOperator.transactional(flow);
+    }
+
+    private Mono<Payment> expirePaymentInternal(Payment payment) {
         log.info(
                 "Expiring payment. paymentId={}, orderId={}",
                 payment.getId(),
@@ -182,7 +223,12 @@ public class PaymentServiceImpl implements PaymentService {
 
         return repository.save(payment)
                 .flatMap(savedPayment ->
-                        producer.publishPaymentExpired(
+                        outboxService.saveEvent(
+                                        AGGREGATE_TYPE_PAYMENT,
+                                        savedPayment.getId(),
+                                        EVENT_TYPE_PAYMENT_EXPIRED,
+                                        kafkaProperties.getTopics().getPaymentExpired(),
+                                        savedPayment.getOrderId().toString(),
                                         toPaymentExpiredEvent(savedPayment)
                                 )
                                 .thenReturn(savedPayment)
