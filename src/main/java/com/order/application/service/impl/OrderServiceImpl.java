@@ -16,7 +16,6 @@ import com.order.domain.enums.SortDirection;
 import com.order.domain.event.*;
 import com.order.exception.*;
 import com.order.infrastructure.config.properties.OrderKafkaProperties;
-import com.order.infrastructure.messaging.kafka.OrderEventProducer;
 import com.order.infrastructure.repository.OrderItemRepository;
 import com.order.infrastructure.repository.OrderRepository;
 import com.order.infrastructure.repository.ProductRepository;
@@ -46,7 +45,6 @@ public class OrderServiceImpl implements OrderService {
     private final ProductRepository productRepository;
     private final OrderCustomRepository customRepository;
     private final TransactionalOperator transactionalOperator;
-    private final OrderEventProducer orderEventProducer;
     private final OutboxService outboxService;
     private final OrderKafkaProperties kafkaProperties;
 
@@ -199,11 +197,18 @@ public class OrderServiceImpl implements OrderService {
 
                             return updateOrderAsConfirmed(order)
                                     .flatMap(confirmedOrder ->
-                                            orderItemRepository.findByOrderId(confirmedOrder.getId())
+                                            orderItemRepository.findByOrderId(
+                                                            confirmedOrder.getId()
+                                                    )
                                                     .collectList()
                                                     .flatMap(items ->
-                                                            orderEventProducer
-                                                                    .publishOrderConfirmed(
+                                                            outboxService
+                                                                    .saveEvent(
+                                                                            AGGREGATE_TYPE_ORDER,
+                                                                            confirmedOrder.getId(),
+                                                                            EVENT_TYPE_ORDER_CONFIRMED,
+                                                                            kafkaProperties.getTopics().getOrderConfirmed(),
+                                                                            confirmedOrder.getId().toString(),
                                                                             toOrderConfirmedEvent(
                                                                                     confirmedOrder
                                                                             )
@@ -509,19 +514,6 @@ public class OrderServiceImpl implements OrderService {
         return transactionalOperator.transactional(flow);
     }
 
-    private void validateStock(
-            Product product,
-            Integer requestedQuantity
-    ) {
-        if (product.getStock() < requestedQuantity) {
-            throw new InsufficientStockException(
-                    product.getId(),
-                    requestedQuantity,
-                    product.getStock()
-            );
-        }
-    }
-
     private void validateNoDuplicateProducts(
             CreateOrderRequest request
     ) {
@@ -534,24 +526,6 @@ public class OrderServiceImpl implements OrderService {
                 throw new DuplicateOrderItemException(item.productId());
             }
         });
-    }
-
-    private Mono<Void> restoreStock(List<OrderItem> items) {
-        return Flux.fromIterable(items)
-                .flatMap(item ->
-                        productRepository.findById(item.getProductId())
-                                .switchIfEmpty(Mono.error(
-                                        new ProductNotFoundException(item.getProductId())
-                                ))
-                                .flatMap(product -> {
-                                    product.setStock(
-                                            product.getStock() + item.getQuantity()
-                                    );
-
-                                    return productRepository.save(product);
-                                })
-                )
-                .then();
     }
 
     private Mono<Order> updateOrderAsCancelled(Order order) {
