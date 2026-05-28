@@ -2,6 +2,7 @@ package com.order.application.service.impl;
 
 import com.order.application.mapper.InventoryMapper;
 import com.order.application.service.InventoryService;
+import com.order.application.service.OutboxService;
 import com.order.domain.dto.response.InventoryResponse;
 import com.order.domain.dto.response.PagedResponse;
 import com.order.domain.enums.InventorySortField;
@@ -9,6 +10,7 @@ import com.order.domain.enums.SortDirection;
 import com.order.domain.event.*;
 import com.order.exception.InventoryNotFoundException;
 import com.order.exception.InventoryReservationException;
+import com.order.infrastructure.config.properties.OrderKafkaProperties;
 import com.order.infrastructure.repository.InventoryRepository;
 import com.order.infrastructure.repository.custom.InventoryCustomRepository;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,14 @@ public class InventoryServiceImpl implements InventoryService {
     private final InventoryCustomRepository customRepository;
     private final TransactionalOperator transactionalOperator;
     private final InventoryMapper mapper;
+    private final OutboxService outboxService;
+    private final OrderKafkaProperties kafkaProperties;
+
+    private static final String AGGREGATE_TYPE_INVENTORY = "INVENTORY";
+
+    private static final String EVENT_TYPE_INVENTORY_RESERVED = "INVENTORY_RESERVED";
+    private static final String EVENT_TYPE_INVENTORY_FAILED = "INVENTORY_FAILED";
+    private static final String EVENT_TYPE_INVENTORY_RELEASED = "INVENTORY_RELEASED";
 
     @Override
     public Mono<InventoryResponse> getByProductId(Long productId) {
@@ -115,6 +125,17 @@ public class InventoryServiceImpl implements InventoryService {
                                         reservedItems,
                                         OffsetDateTime.now()
                                 )
+                        )
+                        .flatMap(reservedEvent ->
+                                outboxService.saveEvent(
+                                                AGGREGATE_TYPE_INVENTORY,
+                                                reservedEvent.orderId(),
+                                                EVENT_TYPE_INVENTORY_RESERVED,
+                                                kafkaProperties.getTopics().getInventoryReserved(),
+                                                reservedEvent.orderId().toString(),
+                                                reservedEvent
+                                        )
+                                        .thenReturn(reservedEvent)
                         );
 
         return transactionalOperator.transactional(reservationFlow);
@@ -189,6 +210,17 @@ public class InventoryServiceImpl implements InventoryService {
                                         releasedItems,
                                         OffsetDateTime.now()
                                 )
+                        )
+                        .flatMap(releasedEvent ->
+                                outboxService.saveEvent(
+                                                AGGREGATE_TYPE_INVENTORY,
+                                                releasedEvent.orderId(),
+                                                EVENT_TYPE_INVENTORY_RELEASED,
+                                                kafkaProperties.getTopics().getInventoryReleased(),
+                                                releasedEvent.orderId().toString(),
+                                                releasedEvent
+                                        )
+                                        .thenReturn(releasedEvent)
                         );
 
         return transactionalOperator.transactional(releaseFlow);
