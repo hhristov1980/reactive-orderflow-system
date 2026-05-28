@@ -12,7 +12,6 @@ import com.order.exception.PaymentForOrderNotFoundException;
 import com.order.exception.PaymentInvalidStatusTransitionException;
 import com.order.exception.PaymentNotFoundException;
 import com.order.infrastructure.config.properties.OrderKafkaProperties;
-import com.order.infrastructure.messaging.kafka.PaymentEventProducer;
 import com.order.infrastructure.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,7 +36,6 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentRepository repository;
     private final PaymentMapper mapper;
-    private final PaymentEventProducer producer;
     private final OutboxService outboxService;
     private final OrderKafkaProperties kafkaProperties;
     private final TransactionalOperator transactionalOperator;
