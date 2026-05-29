@@ -39,12 +39,20 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
-    @ExceptionHandler(ProductNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleProductNotFound(
-            ProductNotFoundException ex,
+    @ExceptionHandler({
+            UserNotFoundException.class,
+            ProductNotFoundException.class,
+            OrderNotFoundException.class,
+            PaymentNotFoundException.class,
+            PaymentForOrderNotFoundException.class,
+            InventoryNotFoundException.class,
+            ShipmentNotFoundException.class,
+            OutboxEventNotFoundException.class
+    })
+    public ResponseEntity<ErrorResponse> handleNotFound(
+            RuntimeException ex,
             ServerHttpRequest request
     ) {
-
         ErrorResponse response = new ErrorResponse(
                 HttpStatus.NOT_FOUND.value(),
                 HttpStatus.NOT_FOUND.name(),
@@ -135,49 +143,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(response);
     }
 
-    @ExceptionHandler(UserNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleUserNotFound(
-            UserNotFoundException ex,
-            ServerHttpRequest request
-    ) {
-
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                HttpStatus.NOT_FOUND.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(response);
-    }
-
-    @ExceptionHandler(UserEmailAlreadyExistsException.class)
-    public ResponseEntity<ErrorResponse> handleUserEmailAlreadyExists(
-            UserEmailAlreadyExistsException ex,
-            ServerHttpRequest request
-    ) {
-
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                HttpStatus.CONFLICT.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(response);
-    }
-
     @ExceptionHandler({
             UserAlreadyBlockedException.class,
             UserAlreadyActiveException.class,
             UserDeletedException.class,
-            UserBlockedException.class
+            UserBlockedException.class,
+            OutboxEventCannotBeRetriedException.class,
+            UserEmailAlreadyExistsException.class
     })
     public ResponseEntity<ErrorResponse> handleUserStateConflict(
             RuntimeException ex,
@@ -193,24 +165,6 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
-                .body(response);
-    }
-
-    @ExceptionHandler(OrderNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleOrderNotFound(
-            OrderNotFoundException ex,
-            ServerHttpRequest request
-    ) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                HttpStatus.NOT_FOUND.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
                 .body(response);
     }
 
@@ -304,24 +258,6 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
-    @ExceptionHandler(InventoryNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleInventoryNotFound(
-            InventoryNotFoundException ex,
-            ServerHttpRequest request
-    ) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                HttpStatus.NOT_FOUND.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(response);
-    }
-
     @ExceptionHandler(OrderCannotBeCancelledException.class)
     public ResponseEntity<ErrorResponse> handleOrderCannotBeCancelled(
             OrderCannotBeCancelledException ex,
@@ -337,27 +273,6 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
-                .body(response);
-    }
-
-    @ExceptionHandler({
-            ShipmentNotFoundException.class,
-            ShipmentForOrderNotFoundException.class
-    })
-    public ResponseEntity<ErrorResponse> handleShipmentNotFound(
-            RuntimeException ex,
-            ServerHttpRequest request
-    ) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                HttpStatus.NOT_FOUND.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
                 .body(response);
     }
 
@@ -379,27 +294,6 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
-                .body(response);
-    }
-
-    @ExceptionHandler({
-            PaymentNotFoundException.class,
-            PaymentForOrderNotFoundException.class
-    })
-    public ResponseEntity<ErrorResponse> handlePaymentNotFound(
-            RuntimeException ex,
-            ServerHttpRequest request
-    ) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                HttpStatus.NOT_FOUND.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
                 .body(response);
     }
 
