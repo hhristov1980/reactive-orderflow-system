@@ -1,5 +1,6 @@
 package com.order.infrastructure.repository.report;
 
+import com.order.domain.dto.response.admin.OutboxSummaryResponse;
 import com.order.domain.dto.response.report.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.r2dbc.core.DatabaseClient;
@@ -137,6 +138,27 @@ public class ReportRepositoryImpl implements ReportRepository {
                         getBigDecimal(row, "revenue")
                 ))
                 .all();
+    }
+
+    @Override
+    public Mono<OutboxSummaryResponse> getOutboxSummary() {
+        String sql = """
+            SELECT
+                COUNT(*) AS total_events,
+                COUNT(*) FILTER (WHERE status = 'PENDING') AS pending_events,
+                COUNT(*) FILTER (WHERE status = 'PUBLISHED') AS published_events,
+                COUNT(*) FILTER (WHERE status = 'FAILED') AS failed_events
+            FROM outbox_events
+            """;
+
+        return databaseClient.sql(sql)
+                .map((row, metadata) -> new OutboxSummaryResponse(
+                        getLong(row, "total_events"),
+                        getLong(row, "pending_events"),
+                        getLong(row, "published_events"),
+                        getLong(row, "failed_events")
+                ))
+                .one();
     }
 
     private Long getLong(io.r2dbc.spi.Row row, String column) {
