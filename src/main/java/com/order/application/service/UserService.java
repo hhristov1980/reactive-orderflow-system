@@ -12,6 +12,8 @@ public interface UserService {
 
     Mono<UserResponse> create(CreateUserRequest request);
 
+    Mono<UserResponse> getById(Long id);
+
     Mono<PagedResponse<UserResponse>> getAll(
             int page,
             int size,
@@ -19,9 +21,11 @@ public interface UserService {
             SortDirection direction
     );
 
-    Mono<UserResponse> getById(Long id);
-
     Mono<UserResponse> update(Long id, UpdateUserRequest request);
 
     Mono<Void> delete(Long id);
+
+    Mono<UserResponse> block(Long id);
+
+    Mono<UserResponse> activate(Long id);
 }

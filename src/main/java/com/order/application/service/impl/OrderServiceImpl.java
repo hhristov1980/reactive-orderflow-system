@@ -13,6 +13,7 @@ import com.order.domain.entity.Product;
 import com.order.domain.enums.OrderSortField;
 import com.order.domain.enums.OrderStatus;
 import com.order.domain.enums.SortDirection;
+import com.order.domain.enums.UserStatus;
 import com.order.domain.event.*;
 import com.order.exception.*;
 import com.order.infrastructure.config.properties.OrderKafkaProperties;
@@ -60,18 +61,27 @@ public class OrderServiceImpl implements OrderService {
         validateNoDuplicateProducts(request);
 
         Mono<OrderResponse> createOrderFlow =
-                userRepository.existsById(request.userId())
-                        .flatMap(userExists -> {
-                            if (!userExists) {
+                userRepository.findById(request.userId())
+                        .switchIfEmpty(Mono.error(new UserNotFoundException(request.userId())))
+                        .flatMap(user -> {
+                            if (user.getStatus() == UserStatus.BLOCKED) {
                                 return Mono.error(
-                                        new UserNotFoundException(request.userId())
+                                        new UserBlockedException(user.getId())
                                 );
                             }
+
+                            if (user.getStatus() == UserStatus.DELETED) {
+                                return Mono.error(
+                                        new UserDeletedException(user.getId())
+                                );
+                            }
+
                             return buildOrderItems(request.items())
                                     .collectList()
                                     .flatMap(orderItems -> {
                                         BigDecimal totalAmount = calculateTotalAmount(orderItems);
                                         Order order = buildOrder(request.userId(), totalAmount);
+
                                         return orderRepository.save(order)
                                                 .flatMap(savedOrder ->
                                                         saveOrderItems(savedOrder, orderItems)

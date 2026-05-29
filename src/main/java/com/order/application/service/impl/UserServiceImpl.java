@@ -8,9 +8,10 @@ import com.order.domain.dto.response.PagedResponse;
 import com.order.domain.dto.response.UserResponse;
 import com.order.domain.entity.User;
 import com.order.domain.enums.SortDirection;
+import com.order.domain.enums.UserRole;
 import com.order.domain.enums.UserSortField;
-import com.order.exception.UserEmailAlreadyExistsException;
-import com.order.exception.UserNotFoundException;
+import com.order.domain.enums.UserStatus;
+import com.order.exception.*;
 import com.order.infrastructure.repository.UserRepository;
 import com.order.infrastructure.repository.custom.UserCustomRepository;
 import lombok.RequiredArgsConstructor;
@@ -42,10 +43,10 @@ public class UserServiceImpl implements UserService {
                         );
                     }
 
-                    User user = mapper.toEntity(request);
-                    initializeAuditFields(user);
+//                    User user = mapper.toEntity(request);
+//                    initializeAuditFields(user);
 
-                    return repository.save(user);
+                    return repository.save(buildUser(request));
                 })
                 .map(mapper::toResponse);
     }
@@ -150,6 +151,52 @@ public class UserServiceImpl implements UserService {
                 .flatMap(repository::delete);
     }
 
+    @Override
+    public Mono<UserResponse> block(Long id) {
+        log.info("Blocking user with id {}", id);
+
+        return repository.findById(id)
+                .switchIfEmpty(Mono.error(new UserNotFoundException(id)))
+                .flatMap(user -> {
+                    if (user.getStatus() == UserStatus.DELETED) {
+                        return Mono.error(new UserDeletedException(id));
+                    }
+
+                    if (user.getStatus() == UserStatus.BLOCKED) {
+                        return Mono.error(new UserAlreadyBlockedException(id));
+                    }
+
+                    user.setStatus(UserStatus.BLOCKED);
+                    user.setUpdatedAt(OffsetDateTime.now());
+
+                    return repository.save(user);
+                })
+                .map(mapper::toResponse);
+    }
+
+    @Override
+    public Mono<UserResponse> activate(Long id) {
+        log.info("Activating user with id {}", id);
+
+        return repository.findById(id)
+                .switchIfEmpty(Mono.error(new UserNotFoundException(id)))
+                .flatMap(user -> {
+                    if (user.getStatus() == UserStatus.DELETED) {
+                        return Mono.error(new UserDeletedException(id));
+                    }
+
+                    if (user.getStatus() == UserStatus.ACTIVE) {
+                        return Mono.error(new UserAlreadyActiveException(id));
+                    }
+
+                    user.setStatus(UserStatus.ACTIVE);
+                    user.setUpdatedAt(OffsetDateTime.now());
+
+                    return repository.save(user);
+                })
+                .map(mapper::toResponse);
+    }
+
     private void initializeAuditFields(User user) {
         OffsetDateTime now = OffsetDateTime.now();
 
@@ -159,5 +206,19 @@ public class UserServiceImpl implements UserService {
 
     private void updateAuditFields(User user) {
         user.setUpdatedAt(OffsetDateTime.now());
+    }
+
+    private User buildUser(CreateUserRequest request) {
+        OffsetDateTime now = OffsetDateTime.now();
+
+        return User.builder()
+                .name(request.name())
+                .email(request.email())
+                .role(UserRole.CUSTOMER)
+                .status(UserStatus.ACTIVE)
+                .emailVerified(false)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
     }
 }
