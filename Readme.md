@@ -28,12 +28,14 @@ The project is designed to demonstrate:
 * Centralized validation and exception handling
 * Operational admin APIs
 * Dockerized local infrastructure
+* GitHub Actions CI/CD with PostgreSQL and Kafka service containers
+* Observability with Actuator, Micrometer, Prometheus, and Grafana
 
 ---
 
 ## Technology Stack
 
-* Java
+* Java 25
 * Spring Boot
 * Spring WebFlux
 * Spring Data R2DBC
@@ -177,6 +179,38 @@ Infrastructure layer
 
 ---
 
+## Key Engineering Decisions
+
+### Modular Monolith First
+
+OrderFlow is intentionally implemented as a modular monolith. This keeps local development and deployment simple while still preserving clear bounded contexts around products, users, orders, inventory, payments, shipping, audit, reporting, and admin operations.
+
+The package and service boundaries are designed so that individual contexts could later be extracted into separate services if operational needs justify the additional complexity.
+
+### Transactional Outbox For Reliable Publishing
+
+Business services do not publish directly to Kafka inside the main business flow. Instead, they persist domain events to `outbox_events` in the same reactive transaction as the related state change.
+
+A scheduled publisher then publishes pending outbox events to Kafka and marks them as `PUBLISHED` or `FAILED`. This avoids the consistency problem where a database write succeeds but event publishing fails.
+
+### Atomic SQL For Inventory Consistency
+
+Inventory reservation uses conditional PostgreSQL updates instead of read-check-save logic. This keeps stock reservation safe under concurrent order creation because the availability check and quantity update happen in one atomic database operation.
+
+### Idempotent Event Handling
+
+Kafka consumers are designed to tolerate duplicate delivery. Inventory uses a reservation ledger with uniqueness constraints, and duplicate business events such as repeated `order.confirmed` or `payment.completed` messages are treated as already processed instead of creating duplicate payments or shipments.
+
+### Reactive Composition Where It Adds Value
+
+The project uses WebFlux, R2DBC, `Flux`, `Mono`, `TransactionalOperator`, and `Mono.zip(...)` to demonstrate non-blocking request handling, reactive database access, transactional orchestration, and parallel aggregation of independent report/admin queries.
+
+### Operational Visibility
+
+The admin, audit, outbox, reporting, metrics, Prometheus, and Grafana features are included to show how backend systems can be inspected and operated after business events have been processed.
+
+---
+
 ## How to Run Locally
 
 ### 1. Start infrastructure
@@ -256,6 +290,83 @@ Grafana is provisioned automatically with:
 
 * Prometheus datasource: `config/grafana/provisioning/datasources/prometheus.yml`
 * OrderFlow reliability dashboard: `config/grafana/dashboards/orderflow-observability.json`
+
+---
+
+## CI/CD
+
+GitHub Actions workflow: `.github/workflows/ci-cd.yml`
+
+The pipeline runs on:
+
+* Pull requests to `main` or `master`
+* Pushes to `main` or `master`
+* Manual `workflow_dispatch`
+
+The CI workflow validates the application against real infrastructure dependencies by starting PostgreSQL and Kafka as GitHub Actions service containers.
+
+Pipeline stages:
+
+```text
+Checkout
+   ↓
+Set up JDK 25 with Maven cache
+   ↓
+Start PostgreSQL service container
+   ↓
+Start Kafka service container
+   ↓
+Run ./mvnw --batch-mode clean verify
+   ↓
+Upload test reports
+   ↓
+Upload packaged application JAR on main/master pushes
+```
+
+The workflow disables Spring Boot Docker Compose integration in CI and points the application to the GitHub Actions service containers:
+
+```text
+SPRING_DOCKER_COMPOSE_ENABLED=false
+SPRING_R2DBC_URL=r2dbc:postgresql://localhost:5433/orderflow
+SPRING_R2DBC_USERNAME=postgres
+SPRING_R2DBC_PASSWORD=postgres
+SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+ORDERFLOW_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+```
+
+The current delivery step publishes the built JAR as a GitHub Actions artifact. A real deployment target can be added later when the hosting environment is chosen.
+
+This CI/CD setup is intentionally lightweight but practical for a portfolio backend project: every pull request and main-branch change must compile, run tests, connect to PostgreSQL, connect to Kafka, and complete Maven verification successfully.
+
+---
+
+## Testing Strategy
+
+The project includes automated tests focused on Kafka consumer retry and idempotency behavior.
+
+Current test coverage demonstrates:
+
+* Successful Kafka consumer processing
+* Duplicate event handling
+* Retry behavior for failed records
+* Dead-letter topic handling for records that cannot be processed
+* Idempotent handling of already-processed business events
+
+The CI pipeline runs the test suite with:
+
+```bash
+./mvnw --batch-mode clean verify
+```
+
+The GitHub Actions workflow starts PostgreSQL and Kafka service containers before running Maven verification, so tests can be executed against infrastructure that is close to the local development setup.
+
+Planned testing improvements:
+
+* Testcontainers-based integration tests for PostgreSQL and Kafka
+* Service-layer transaction tests for order, inventory, payment, and shipping flows
+* Scheduler tests for unpaid payment expiration and outbox publishing
+* Repository integration tests for custom SQL reporting queries
+* Contract tests for Kafka event schemas before extracting bounded contexts into separate services
 
 ---
 
@@ -1217,6 +1328,7 @@ This project demonstrates several backend engineering concepts that are useful i
 * Operational admin APIs for outbox and audit inspection
 * Centralized configuration through `application.yaml`
 * Modular monolith structure ready for microservice extraction
+* GitHub Actions CI/CD with PostgreSQL and Kafka service containers
 
 ---
 
@@ -1257,14 +1369,32 @@ Failure scenario:
 
 ---
 
+## Current Limitations And Production Notes
+
+This project is production-inspired, but it is still a portfolio project and not a complete production system.
+
+Current intentional limitations:
+
+* Authentication and authorization are not implemented yet.
+* Admin endpoints are separated by route and service boundaries, but they are not protected by Spring Security yet.
+* The application currently runs as a single modular monolith deployment.
+* Kafka topics use one partition and one replica in local development.
+* The current CI/CD workflow builds, tests, and publishes a JAR artifact, but it does not deploy to a live hosting environment.
+* Distributed tracing and correlation IDs across HTTP, Kafka, outbox, and database operations are planned but not yet implemented.
+* Testcontainers-based full integration testing is planned as a next step.
+
+These limitations are documented explicitly because the main purpose of the project is to demonstrate backend architecture, reliability patterns, reactive programming, event-driven workflows, and operational visibility.
+
+---
+
+
 ## Future Improvements
 
 Potential next steps:
 
 * Integration tests with Testcontainers
-* CI/CD pipeline that runs unit tests, integration tests, and build checks
 * Separate modules or microservices per bounded context
-* Authentication and authorization
+* Authentication and authorization with Spring Security
 * More advanced reporting and time-based analytics
 * Distributed tracing with correlation ids across HTTP, outbox, Kafka, and database work
 * Admin workflow for inspecting, replaying, or parking records from dead-letter topics
@@ -1303,6 +1433,7 @@ Implemented:
 * Custom Micrometer metrics for Kafka consumer outcomes, DLT publishing, and inventory reservation failures
 * Prometheus scrape configuration
 * Grafana datasource provisioning and OrderFlow reliability dashboard
+* GitHub Actions CI/CD workflow for Maven verification and JAR artifact publishing
 * Automated tests for Kafka consumer retry/idempotency behavior
 * Swagger/OpenAPI support
 * Docker-based local infrastructure
