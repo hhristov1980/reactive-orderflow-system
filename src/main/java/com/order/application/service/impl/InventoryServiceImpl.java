@@ -12,6 +12,7 @@ import com.order.exception.InventoryNotFoundException;
 import com.order.exception.InventoryReservationException;
 import com.order.infrastructure.config.properties.OrderKafkaProperties;
 import com.order.infrastructure.repository.InventoryRepository;
+import com.order.infrastructure.repository.InventoryReservationRepository;
 import com.order.infrastructure.repository.custom.InventoryCustomRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,7 @@ import java.util.List;
 public class InventoryServiceImpl implements InventoryService {
 
     private final InventoryRepository repository;
+    private final InventoryReservationRepository reservationRepository;
     private final InventoryCustomRepository customRepository;
     private final TransactionalOperator transactionalOperator;
     private final InventoryMapper mapper;
@@ -117,7 +119,10 @@ public class InventoryServiceImpl implements InventoryService {
 
         Mono<InventoryReservedEvent> reservationFlow =
                 Flux.fromIterable(event.items())
-                        .flatMap(this::reserveSingleItem)
+                        .flatMap(item -> reserveSingleItem(
+                                event.orderId(),
+                                item
+                        ))
                         .collectList()
                         .map(reservedItems ->
                                 new InventoryReservedEvent(
@@ -142,48 +147,100 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     private Mono<InventoryReservedItemEvent> reserveSingleItem(
+            Long orderId,
             OrderItemEvent item
     ) {
-        return repository.findByProductId(item.productId())
-                .switchIfEmpty(
-                        Mono.error(
-                                new InventoryReservationException(
-                                        "Inventory not found for product id: " + item.productId()
-                                )
-                        )
+        return reservationRepository.createReservation(
+                        orderId,
+                        item.productId(),
+                        item.quantity()
                 )
-                .flatMap(inventory -> {
-                    if (inventory.getAvailableQuantity() < item.quantity()) {
-                        return Mono.error(
-                                new InventoryReservationException(
-                                        "Insufficient inventory for product id: "
-                                                + item.productId()
-                                                + ". Requested: "
-                                                + item.quantity()
-                                                + ", available: "
-                                                + inventory.getAvailableQuantity()
-                                )
+                .flatMap(insertedRows -> {
+                    if (insertedRows == 0) {
+                        log.info(
+                                "Inventory reservation already exists. orderId={}, productId={}",
+                                orderId,
+                                item.productId()
                         );
+
+                        return Mono.just(toReservedItemEvent(item));
                     }
 
-                    inventory.setAvailableQuantity(
-                            inventory.getAvailableQuantity() - item.quantity()
-                    );
+                    return repository.reserveStock(
+                                    item.productId(),
+                                    item.quantity()
+                            )
+                            .flatMap(updatedRows -> {
+                                if (updatedRows == 0) {
+                                    return Mono.error(
+                                            new InventoryReservationException(
+                                                    "Inventory reservation failed for order id: "
+                                                            + orderId
+                                                            + ", product id: "
+                                                            + item.productId()
+                                                            + ". Inventory is missing or insufficient. Requested: "
+                                                            + item.quantity()
+                                            )
+                                    );
+                                }
 
-                    inventory.setReservedQuantity(
-                            inventory.getReservedQuantity() + item.quantity()
-                    );
+                                return Mono.just(toReservedItemEvent(item));
+                            });
+                });
+    }
 
-                    inventory.setUpdatedAt(OffsetDateTime.now());
+    private InventoryReservedItemEvent toReservedItemEvent(OrderItemEvent item) {
+        return new InventoryReservedItemEvent(
+                item.productId(),
+                item.quantity()
+        );
+    }
 
-                    return repository.save(inventory);
-                })
-                .map(savedInventory ->
-                        new InventoryReservedItemEvent(
-                                savedInventory.getProductId(),
-                                item.quantity()
-                        )
-                );
+    private InventoryReleasedItemEvent toReleasedItemEvent(OrderItemEvent item) {
+        return new InventoryReleasedItemEvent(
+                item.productId(),
+                item.quantity()
+        );
+    }
+
+    private Mono<InventoryReleasedItemEvent> failMissingReservation(
+            Long orderId,
+            OrderItemEvent item
+    ) {
+        return Mono.error(
+                new InventoryReservationException(
+                        "Inventory release failed for order id: "
+                                + orderId
+                                + ", product id: "
+                                + item.productId()
+                                + ". Matching reserved inventory reservation was not found. Requested release: "
+                                + item.quantity()
+                )
+        );
+    }
+
+    private Mono<InventoryReleasedItemEvent> handleAlreadyReleasedOrMissing(
+            Long orderId,
+            OrderItemEvent item
+    ) {
+        return reservationRepository.existsReleasedReservation(
+                        orderId,
+                        item.productId(),
+                        item.quantity()
+                )
+                .flatMap(exists -> {
+                    if (exists) {
+                        log.info(
+                                "Inventory reservation was already released. orderId={}, productId={}",
+                                orderId,
+                                item.productId()
+                        );
+
+                        return Mono.just(toReleasedItemEvent(item));
+                    }
+
+                    return failMissingReservation(orderId, item);
+                });
     }
 
     @Override
@@ -202,7 +259,10 @@ public class InventoryServiceImpl implements InventoryService {
 
         Mono<InventoryReleasedEvent> releaseFlow =
                 Flux.fromIterable(event.items())
-                        .flatMap(this::releaseSingleItem)
+                        .flatMap(item -> releaseSingleItem(
+                                event.orderId(),
+                                item
+                        ))
                         .collectList()
                         .map(releasedItems ->
                                 new InventoryReleasedEvent(
@@ -227,50 +287,45 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     private Mono<InventoryReleasedItemEvent> releaseSingleItem(
+            Long orderId,
             OrderItemEvent item
     ) {
-        return repository.findByProductId(item.productId())
-                .switchIfEmpty(
-                        Mono.error(
-                                new InventoryReservationException(
-                                        "Inventory not found for product id: " + item.productId()
-                                )
-                        )
+        return reservationRepository.markReleased(
+                        orderId,
+                        item.productId(),
+                        item.quantity()
                 )
-                .flatMap(inventory -> {
-                    int reservedQuantity =
-                            inventory.getReservedQuantity();
-
-                    if (reservedQuantity < item.quantity()) {
-                        return Mono.error(
-                                new InventoryReservationException(
-                                        "Cannot release inventory for product id: "
-                                                + item.productId()
-                                                + ". Requested release: "
-                                                + item.quantity()
-                                                + ", reserved: "
-                                                + reservedQuantity
-                                )
+                .flatMap(releasedRows -> {
+                    if (releasedRows == 0) {
+                        log.info(
+                                "Inventory reservation is already released or missing. orderId={}, productId={}",
+                                orderId,
+                                item.productId()
                         );
+
+                        return handleAlreadyReleasedOrMissing(orderId, item);
                     }
 
-                    inventory.setAvailableQuantity(
-                            inventory.getAvailableQuantity() + item.quantity()
-                    );
+                    return repository.releaseStock(
+                                    item.productId(),
+                                    item.quantity()
+                            )
+                            .flatMap(updatedRows -> {
+                                if (updatedRows == 0) {
+                                    return Mono.error(
+                                            new InventoryReservationException(
+                                                    "Inventory release failed for order id: "
+                                                            + orderId
+                                                            + ", product id: "
+                                                            + item.productId()
+                                                            + ". Inventory is missing or reserved quantity is insufficient. Requested release: "
+                                                            + item.quantity()
+                                            )
+                                    );
+                                }
 
-                    inventory.setReservedQuantity(
-                            inventory.getReservedQuantity() - item.quantity()
-                    );
-
-                    inventory.setUpdatedAt(OffsetDateTime.now());
-
-                    return repository.save(inventory);
-                })
-                .map(savedInventory ->
-                        new InventoryReleasedItemEvent(
-                                savedInventory.getProductId(),
-                                item.quantity()
-                        )
-                );
+                                return Mono.just(toReleasedItemEvent(item));
+                            });
+                });
     }
 }

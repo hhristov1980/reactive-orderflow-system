@@ -17,6 +17,8 @@ The project is designed to demonstrate:
 * Event-driven communication with Apache Kafka
 * Reliable event publishing through the Transactional Outbox Pattern
 * Saga-like order lifecycle coordination
+* Concurrent-safe inventory updates with atomic SQL
+* Idempotent inventory reservation handling for duplicate Kafka delivery
 * Reactive transactional operations
 * Parallel report aggregation with `Mono.zip(...)`
 * Scheduled jobs for unpaid payment expiration
@@ -69,7 +71,7 @@ The application is currently implemented as a modular monolith with clear bounde
 | Product Service   | Manages the product catalog and product availability metadata used when orders are created.                |
 | User Service      | Manages users, user status, blocking, activation, and validation before order creation.                    |
 | Order Service     | Owns order creation, order status transitions, order items, and saga coordination through outbox events.   |
-| Inventory Service | Reads inventory, reserves stock after `order.created`, and releases stock after `order.cancelled`.         |
+| Inventory Service | Reads inventory, atomically reserves/releases stock, and tracks reservation state for idempotent retries.  |
 | Payment Service   | Creates pending payments from confirmed orders, completes or fails payments, and expires overdue payments. |
 | Shipment Service  | Creates shipments from completed payments and manages shipment progress from created to delivered.         |
 | Audit Service     | Persists lifecycle events consumed from Kafka into the audit log for traceability.                         |
@@ -487,12 +489,38 @@ PATCH /api/v1/shipments/{id}/deliver
 
 Inventory is the source of truth for available and reserved stock.
 
+Inventory mutations are concurrency-safe at the database level. Reservation and release operations use conditional PostgreSQL updates instead of read-check-save logic:
+
+```sql
+UPDATE inventory
+SET available_quantity = available_quantity - :quantity,
+    reserved_quantity = reserved_quantity + :quantity
+WHERE product_id = :productId
+  AND available_quantity >= :quantity;
+```
+
+The row update and stock check happen atomically, so two concurrent orders cannot both reserve the same available units.
+
+Inventory also keeps an `inventory_reservations` ledger with a unique `(order_id, product_id)` constraint. This protects the service from duplicate Kafka deliveries:
+
+```text
+Duplicate order.created
+   ↓
+inventory_reservations insert conflicts
+   ↓
+stock is not reserved a second time
+```
+
+Duplicate `order.cancelled` events are also idempotent: if the matching reservation is already marked `RELEASED`, the service returns the release event without moving stock again.
+
 ### Reservation
 
 ```text
 order.created
    ↓
 InventoryOrderEventConsumer
+   ↓
+insert inventory_reservations row
    ↓
 reserve inventory items
    ↓
@@ -507,6 +535,8 @@ inventory.reserved or inventory.failed
 order.cancelled
    ↓
 InventoryOrderEventConsumer
+   ↓
+mark inventory_reservations row as RELEASED
    ↓
 release reserved inventory
    ↓
@@ -773,7 +803,7 @@ PATCH /api/v1/orders/{id}/cancel
 ### Inventory
 
 ```http
-GET /api/v1/inventory
+GET /api/v1/inventory/products
 GET /api/v1/inventory/products/{productId}
 ```
 
@@ -959,6 +989,7 @@ Examples:
 * order creation
 * inventory reservation
 * inventory release
+* inventory reservation idempotency
 * order confirmation from inventory event
 * order cancellation from payment failure
 * payment creation
@@ -1046,7 +1077,7 @@ For Kubernetes or production-like environments, these values can be overridden t
 3. Create an order
 4. ORDER_CREATED is saved to the outbox
 5. OutboxPublisherScheduler publishes order.created
-6. Inventory reserves stock
+6. Inventory creates reservation ledger rows and atomically reserves stock
 7. INVENTORY_RESERVED is saved to the outbox
 8. OutboxPublisherScheduler publishes inventory.reserved
 9. Order status becomes CONFIRMED
@@ -1071,7 +1102,7 @@ For Kubernetes or production-like environments, these values can be overridden t
 
 ```text
 1. Create an order
-2. Inventory reserves stock
+2. Inventory creates reservation ledger rows and atomically reserves stock
 3. Payment is created with PENDING status
 4. Payment fails or expires
 5. PAYMENT_FAILED or PAYMENT_EXPIRED is saved to the outbox
@@ -1079,7 +1110,7 @@ For Kubernetes or production-like environments, these values can be overridden t
 7. Order is cancelled
 8. ORDER_CANCELLED is saved to the outbox
 9. OutboxPublisherScheduler publishes order.cancelled
-10. Inventory releases reserved stock
+10. Inventory marks reservation ledger rows as RELEASED and atomically releases stock
 11. INVENTORY_RELEASED is saved to the outbox
 12. OutboxPublisherScheduler publishes inventory.released
 13. Check audit events for the cancelled order
@@ -1097,12 +1128,13 @@ This project demonstrates several backend engineering concepts that are useful i
 * Event-driven business workflows with Kafka
 * Transactional Outbox Pattern for reliable event publishing
 * Saga-like compensation through events
-* Inventory reservation and release logic
+* Concurrent-safe inventory reservation and release logic
+* Idempotent handling of duplicate inventory events
 * Payment expiration through scheduled jobs
 * Reporting read models with custom SQL
 * Parallel dashboard aggregation with `Mono.zip(...)`
 * Operational admin APIs for outbox and audit inspection
-* Centralized configuration through `application.yml`
+* Centralized configuration through `application.yaml`
 * Modular monolith structure ready for microservice extraction
 
 ---
@@ -1113,7 +1145,7 @@ A good demo sequence for the project is:
 
 ```text
 1. Create products and users
-2. Create inventory records from products
+2. Create inventory records for products
 3. Create an order
 4. Watch ORDER_CREATED in outbox_events
 5. Watch order.created in Kafka UI
@@ -1137,7 +1169,7 @@ Failure scenario:
 4. PAYMENT_EXPIRED is saved to the outbox
 5. payment.expired is published
 6. Order is cancelled
-7. Inventory is released
+7. Inventory marks reservation ledger rows as RELEASED and releases stock
 8. Check audit events for the cancelled order
 9. Check outbox events and confirm all related events are PUBLISHED
 ```
@@ -1149,8 +1181,6 @@ Failure scenario:
 Potential next steps:
 
 * Dead-letter topics for failed Kafka messages
-* Idempotent Kafka consumers for duplicate event protection
-* Optimistic locking for inventory concurrency
 * Integration tests with Testcontainers
 * Separate modules or microservices per bounded context
 * Authentication and authorization
@@ -1172,6 +1202,8 @@ Implemented:
 * Admin user block and activate actions
 * Order lifecycle
 * Inventory reservation and release
+* Atomic inventory stock updates
+* Inventory reservation ledger for duplicate event protection
 * Payment lifecycle
 * Scheduled payment expiration
 * Shipping lifecycle
