@@ -40,6 +40,8 @@ The project is designed to demonstrate:
 * PostgreSQL
 * Apache Kafka
 * Kafka UI
+* Prometheus
+* Grafana
 * Docker Compose
 * MapStruct
 * Lombok
@@ -195,6 +197,8 @@ Expected containers:
 postgres
 kafka
 kafka-ui
+prometheus
+grafana
 ```
 
 ### 3. Start the Spring Boot application
@@ -213,13 +217,22 @@ Or run the main application class from the IDE.
 Swagger UI: http://localhost:8081/swagger-ui.html
 Kafka UI:   http://localhost:8080
 Metrics:    http://localhost:8081/actuator/metrics
+Prometheus: http://localhost:9090
+Grafana:    http://localhost:3000
+```
+
+Grafana local credentials:
+
+```text
+Username: admin
+Password: admin
 ```
 
 ---
 
 ## Metrics
 
-Spring Boot Actuator exposes health, info, and metrics endpoints under `/actuator`.
+Spring Boot Actuator exposes health, info, metrics, and Prometheus endpoints under `/actuator`.
 
 Useful custom Kafka metrics:
 
@@ -234,7 +247,15 @@ Examples:
 curl http://localhost:8081/actuator/metrics/orderflow.kafka.consumer.events
 curl http://localhost:8081/actuator/metrics/orderflow.kafka.dlt.events
 curl http://localhost:8081/actuator/metrics/orderflow.inventory.reservation.failures
+curl http://localhost:8081/actuator/prometheus
 ```
+
+Prometheus is configured in `config/prometheus/prometheus.yml` to scrape the Spring Boot app at `host.docker.internal:8081/actuator/prometheus`.
+
+Grafana is provisioned automatically with:
+
+* Prometheus datasource: `config/grafana/provisioning/datasources/prometheus.yml`
+* OrderFlow reliability dashboard: `config/grafana/dashboards/orderflow-observability.json`
 
 ---
 
@@ -247,6 +268,8 @@ The project uses Docker Compose for local infrastructure.
 * PostgreSQL
 * Kafka
 * Kafka UI
+* Prometheus
+* Grafana
 
 ### Ports
 
@@ -254,6 +277,8 @@ The project uses Docker Compose for local infrastructure.
 PostgreSQL: 5433
 Kafka:      9092
 Kafka UI:   8080
+Prometheus: 9090
+Grafana:    3000
 Application: 8081
 ```
 
@@ -1241,7 +1266,6 @@ Potential next steps:
 * Separate modules or microservices per bounded context
 * Authentication and authorization
 * More advanced reporting and time-based analytics
-* Prometheus/Grafana dashboards for the existing Micrometer metrics
 * Distributed tracing with correlation ids across HTTP, outbox, Kafka, and database work
 * Admin workflow for inspecting, replaying, or parking records from dead-letter topics
 * Stronger test coverage for service-layer transactions, scheduler behavior, and admin APIs
@@ -1277,6 +1301,8 @@ Implemented:
 * Top products report
 * Spring Boot Actuator metrics endpoint
 * Custom Micrometer metrics for Kafka consumer outcomes, DLT publishing, and inventory reservation failures
+* Prometheus scrape configuration
+* Grafana datasource provisioning and OrderFlow reliability dashboard
 * Automated tests for Kafka consumer retry/idempotency behavior
 * Swagger/OpenAPI support
 * Docker-based local infrastructure
