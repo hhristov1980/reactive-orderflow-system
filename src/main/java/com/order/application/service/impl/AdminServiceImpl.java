@@ -3,6 +3,7 @@ package com.order.application.service.impl;
 import com.order.application.service.AdminService;
 import com.order.domain.dto.response.PagedResponse;
 import com.order.domain.dto.response.admin.AdminDashboardResponse;
+import com.order.domain.dto.response.admin.AuditEventResponse;
 import com.order.domain.dto.response.admin.OutboxEventResponse;
 import com.order.domain.dto.response.admin.OutboxSummaryResponse;
 import com.order.domain.dto.response.report.InventoryReportResponse;
@@ -10,11 +11,14 @@ import com.order.domain.dto.response.report.OrderSummaryReportResponse;
 import com.order.domain.dto.response.report.PaymentReportResponse;
 import com.order.domain.dto.response.report.RevenueReportResponse;
 import com.order.domain.dto.response.report.TopProductReportResponse;
+import com.order.domain.entity.AuditEvent;
 import com.order.domain.entity.OutboxEvent;
 import com.order.domain.enums.OutboxStatus;
+import com.order.exception.AuditEventNotFoundException;
 import com.order.exception.OutboxEventCannotBeRetriedException;
 import com.order.exception.OutboxEventNotFoundException;
 import com.order.infrastructure.config.properties.DashboardReportProperties;
+import com.order.infrastructure.repository.AuditEventRepository;
 import com.order.infrastructure.repository.OutboxEventRepository;
 import com.order.infrastructure.repository.report.ReportRepository;
 import lombok.RequiredArgsConstructor;
@@ -31,8 +35,11 @@ import java.util.List;
 @Slf4j
 public class AdminServiceImpl implements AdminService {
 
+    private static final String AGGREGATE_TYPE_ORDER = "ORDER";
+
     private final ReportRepository reportRepository;
     private final OutboxEventRepository outboxEventRepository;
+    private final AuditEventRepository auditEventRepository;
     private final DashboardReportProperties dashboardReportProperties;
 
     @Override
@@ -123,31 +130,12 @@ public class AdminServiceImpl implements AdminService {
                         .collectList();
 
         return Mono.zip(eventsMono, countMono)
-                .map(tuple -> {
-                    List<OutboxEventResponse> events = tuple.getT1();
-                    long totalElements = tuple.getT2();
-
-                    int totalPages =
-                            (int) Math.ceil((double) totalElements / validatedSize);
-
-                    boolean first = validatedPage == 0;
-                    boolean last =
-                            totalPages == 0 || validatedPage >= totalPages - 1;
-                    boolean hasNext = validatedPage < totalPages - 1;
-                    boolean hasPrevious = validatedPage > 0;
-
-                    return new PagedResponse<>(
-                            events,
-                            validatedPage,
-                            validatedSize,
-                            totalElements,
-                            totalPages,
-                            first,
-                            last,
-                            hasNext,
-                            hasPrevious
-                    );
-                });
+                .map(tuple -> toPagedResponse(
+                        tuple.getT1(),
+                        validatedPage,
+                        validatedSize,
+                        tuple.getT2()
+                ));
     }
 
     @Override
@@ -185,6 +173,85 @@ public class AdminServiceImpl implements AdminService {
                 .map(this::toOutboxEventResponse);
     }
 
+    @Override
+    public Mono<PagedResponse<AuditEventResponse>> getAuditEvents(
+            int page,
+            int size
+    ) {
+        log.info("Getting audit events: page={}, size={}", page, size);
+
+        int validatedPage = Math.max(page, 0);
+        int validatedSize = Math.clamp(size, 1, 100);
+        long offset = (long) validatedPage * validatedSize;
+
+        Mono<List<AuditEventResponse>> eventsMono =
+                auditEventRepository.findAllPaged(validatedSize, offset)
+                        .map(this::toAuditEventResponse)
+                        .collectList();
+
+        Mono<Long> countMono =
+                auditEventRepository.countAll();
+
+        return Mono.zip(eventsMono, countMono)
+                .map(tuple -> toPagedResponse(
+                        tuple.getT1(),
+                        validatedPage,
+                        validatedSize,
+                        tuple.getT2()
+                ));
+    }
+
+    @Override
+    public Mono<AuditEventResponse> getAuditEventById(Long id) {
+        log.info("Getting audit event with id={}", id);
+
+        return auditEventRepository.findById(id)
+                .switchIfEmpty(Mono.error(new AuditEventNotFoundException(id)))
+                .map(this::toAuditEventResponse);
+    }
+
+    @Override
+    public Mono<PagedResponse<AuditEventResponse>> getAuditEventsByOrderId(
+            Long orderId,
+            int page,
+            int size
+    ) {
+        log.info(
+                "Getting audit events for orderId={}, page={}, size={}",
+                orderId,
+                page,
+                size
+        );
+
+        int validatedPage = Math.max(page, 0);
+        int validatedSize = Math.clamp(size, 1, 100);
+        long offset = (long) validatedPage * validatedSize;
+
+        Mono<List<AuditEventResponse>> eventsMono =
+                auditEventRepository.findByAggregatePaged(
+                                AGGREGATE_TYPE_ORDER,
+                                orderId,
+                                validatedSize,
+                                offset
+                        )
+                        .map(this::toAuditEventResponse)
+                        .collectList();
+
+        Mono<Long> countMono =
+                auditEventRepository.countByAggregate(
+                        AGGREGATE_TYPE_ORDER,
+                        orderId
+                );
+
+        return Mono.zip(eventsMono, countMono)
+                .map(tuple -> toPagedResponse(
+                        tuple.getT1(),
+                        validatedPage,
+                        validatedSize,
+                        tuple.getT2()
+                ));
+    }
+
     private OutboxEventResponse toOutboxEventResponse(OutboxEvent event) {
         return new OutboxEventResponse(
                 event.getId(),
@@ -200,6 +267,45 @@ public class AdminServiceImpl implements AdminService {
                 event.getCreatedAt(),
                 event.getUpdatedAt(),
                 event.getPublishedAt()
+        );
+    }
+
+    private AuditEventResponse toAuditEventResponse(AuditEvent event) {
+        return new AuditEventResponse(
+                event.getId(),
+                event.getEventType(),
+                event.getAggregateType(),
+                event.getAggregateId(),
+                event.getPayload(),
+                event.getCreatedAt()
+        );
+    }
+
+    private <T> PagedResponse<T> toPagedResponse(
+            List<T> content,
+            int page,
+            int size,
+            long totalElements
+    ) {
+        int totalPages =
+                (int) Math.ceil((double) totalElements / size);
+
+        boolean first = page == 0;
+        boolean last =
+                totalPages == 0 || page >= totalPages - 1;
+        boolean hasNext = page < totalPages - 1;
+        boolean hasPrevious = page > 0;
+
+        return new PagedResponse<>(
+                content,
+                page,
+                size,
+                totalElements,
+                totalPages,
+                first,
+                last,
+                hasNext,
+                hasPrevious
         );
     }
 }
