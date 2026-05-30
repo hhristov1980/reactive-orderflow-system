@@ -1213,11 +1213,9 @@ Failure scenario:
 
 Potential next steps:
 
-* Dead-letter topics for failed Kafka messages
 * Integration tests with Testcontainers
 * Separate modules or microservices per bounded context
 * Authentication and authorization
-* API versioning strategy
 * More advanced reporting and time-based analytics
 * Metrics and observability
 * CI/CD pipeline
@@ -1241,6 +1239,7 @@ Implemented:
 * Scheduled payment expiration
 * Shipping lifecycle
 * Kafka consumer flows
+* Kafka consumer retry and dead-letter topics
 * Reliable Kafka publishing through transactional outbox
 * Outbox event persistence and scheduled publishing
 * Outbox retry support
