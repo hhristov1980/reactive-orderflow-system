@@ -52,7 +52,7 @@ public class InventoryOrderEventConsumer {
                 )
                 .then()
                 .onErrorResume(error -> saveInventoryFailedEvent(event, error))
-                .subscribe();
+                .block();
     }
 
     @KafkaListener(
@@ -84,8 +84,7 @@ public class InventoryOrderEventConsumer {
                                 error
                         )
                 )
-                .onErrorResume(error -> Mono.empty())
-                .subscribe();
+                .block();
     }
 
     private Mono<Void> saveInventoryFailedEvent(

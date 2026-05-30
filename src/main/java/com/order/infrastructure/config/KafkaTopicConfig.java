@@ -78,10 +78,79 @@ public class KafkaTopicConfig {
         return topic(kafkaProperties.getTopics().getPaymentExpired());
     }
 
+    @Bean
+    public NewTopic orderCreatedDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getOrderCreated());
+    }
+
+    @Bean
+    public NewTopic orderConfirmedDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getOrderConfirmed());
+    }
+
+    @Bean
+    public NewTopic orderCancelledDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getOrderCancelled());
+    }
+
+    @Bean
+    public NewTopic inventoryReservedDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getInventoryReserved());
+    }
+
+    @Bean
+    public NewTopic inventoryFailedDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getInventoryFailed());
+    }
+
+    @Bean
+    public NewTopic inventoryReleasedDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getInventoryReleased());
+    }
+
+    @Bean
+    public NewTopic shipmentCreatedDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getShipmentCreated());
+    }
+
+    @Bean
+    public NewTopic shipmentShippedDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getShipmentShipped());
+    }
+
+    @Bean
+    public NewTopic shipmentDeliveredDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getShipmentDelivered());
+    }
+
+    @Bean
+    public NewTopic paymentCreatedDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getPaymentCreated());
+    }
+
+    @Bean
+    public NewTopic paymentCompletedDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getPaymentCompleted());
+    }
+
+    @Bean
+    public NewTopic paymentFailedDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getPaymentFailed());
+    }
+
+    @Bean
+    public NewTopic paymentExpiredDltTopic() {
+        return dltTopic(kafkaProperties.getTopics().getPaymentExpired());
+    }
+
     private NewTopic topic(String name) {
         return TopicBuilder.name(name)
                 .partitions(kafkaProperties.getTopicSettings().getPartitions())
                 .replicas(kafkaProperties.getTopicSettings().getReplicas())
                 .build();
+    }
+
+    private NewTopic dltTopic(String sourceTopic) {
+        return topic(sourceTopic + ".DLT");
     }
 }
