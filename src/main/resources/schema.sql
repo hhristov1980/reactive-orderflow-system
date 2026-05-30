@@ -54,6 +54,18 @@ CREATE TABLE IF NOT EXISTS inventory (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     );
 
+CREATE TABLE IF NOT EXISTS inventory_reservations (
+    id BIGSERIAL PRIMARY KEY,
+    order_id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    quantity INT NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_inventory_reservations_order_product
+        UNIQUE (order_id, product_id)
+    );
+
 CREATE TABLE IF NOT EXISTS shipments (
     id BIGSERIAL PRIMARY KEY,
     order_id BIGINT NOT NULL UNIQUE,
@@ -102,3 +114,6 @@ CREATE INDEX IF NOT EXISTS idx_outbox_events_status_created_at
 
 CREATE INDEX IF NOT EXISTS idx_outbox_events_status_retry_created_at
     ON outbox_events (status, retry_count, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_reservations_order_product_status
+    ON inventory_reservations (order_id, product_id, status);
