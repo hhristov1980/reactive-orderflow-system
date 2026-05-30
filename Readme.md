@@ -2,7 +2,7 @@
 
 OrderFlow is a reactive, event-driven order management platform built with Spring WebFlux, R2DBC, PostgreSQL, Kafka, Docker, and MapStruct.
 
-It demonstrates a realistic e-commerce backend flow: product catalog management, users, order creation, inventory reservation, payment processing, shipping, audit logging, scheduled unpaid payment expiration, and reporting.
+It demonstrates a realistic e-commerce backend flow: product catalog management, users, order creation, inventory reservation, payment processing, shipping, audit logging, scheduled unpaid payment expiration, reporting, and operational admin views.
 
 The project is currently implemented as a modular monolith with clear bounded contexts, making it suitable for later extraction into separate microservices.
 
@@ -15,6 +15,7 @@ The project is designed to demonstrate:
 * Reactive programming with Spring WebFlux and Project Reactor
 * Non-blocking database access with R2DBC
 * Event-driven communication with Apache Kafka
+* Reliable event publishing through the Transactional Outbox Pattern
 * Saga-like order lifecycle coordination
 * Reactive transactional operations
 * Parallel report aggregation with `Mono.zip(...)`
@@ -22,6 +23,7 @@ The project is designed to demonstrate:
 * Clean layered architecture
 * DTO mapping with MapStruct
 * Centralized validation and exception handling
+* Operational admin APIs
 * Dockerized local infrastructure
 
 ---
@@ -56,7 +58,24 @@ The application is currently implemented as a modular monolith with clear bounde
 * Payment / Billing Service
 * Shipping / Tracking Service
 * Audit Service
+* Outbox Service
+* Admin Service
 * Reporting Module
+
+### Service Summary
+
+| Service           | Responsibility                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| Product Service   | Manages the product catalog and product availability metadata used when orders are created.                |
+| User Service      | Manages users, user status, blocking, activation, and validation before order creation.                    |
+| Order Service     | Owns order creation, order status transitions, order items, and saga coordination through outbox events.   |
+| Inventory Service | Reads inventory, reserves stock after `order.created`, and releases stock after `order.cancelled`.         |
+| Payment Service   | Creates pending payments from confirmed orders, completes or fails payments, and expires overdue payments. |
+| Shipment Service  | Creates shipments from completed payments and manages shipment progress from created to delivered.         |
+| Audit Service     | Persists lifecycle events consumed from Kafka into the audit log for traceability.                         |
+| Outbox Service    | Stores domain events transactionally and publishes pending events to Kafka with retry support.             |
+| Report Service    | Provides read-only operational reports and dashboard aggregations from PostgreSQL.                         |
+| Admin Service     | Aggregates dashboard data and exposes operational views for users, audit events, and outbox events.        |
 
 ### Package Structure
 
@@ -70,6 +89,7 @@ com.order
 │   ├── dto
 │   │   ├── request
 │   │   └── response
+│   │       ├── admin
 │   │       └── report
 │   ├── entity
 │   ├── enums
@@ -87,6 +107,7 @@ com.order
 │   └── scheduler
 └── presentation
     └── controller
+        └── admin
 ```
 
 ---
@@ -103,24 +124,21 @@ flowchart LR
     Client --> Payment[Payment API]
     Client --> Shipment[Shipment API]
     Client --> Reports[Reporting API]
+    Client --> Admin[Admin API]
 
-    Order -->|order.created| Kafka[(Kafka)]
+    Order --> Outbox[Outbox Service]
+    Inventory --> Outbox
+    Payment --> Outbox
+    Shipment --> Outbox
+
+    Outbox -->|publish pending events| Kafka[(Kafka)]
+
     Kafka -->|order.created| Inventory[Inventory Service]
-    Inventory -->|inventory.reserved / inventory.failed| Kafka
-    Kafka -->|inventory.reserved| Order
-    Kafka -->|inventory.failed| Order
-
-    Order -->|order.confirmed| Kafka
+    Kafka -->|inventory.reserved / inventory.failed| Order
     Kafka -->|order.confirmed| Payment[Payment Service]
-    Payment -->|payment.created / payment.completed / payment.failed / payment.expired| Kafka
-
     Kafka -->|payment.completed| Shipment[Shipping Service]
     Kafka -->|payment.failed / payment.expired| Order
-
-    Order -->|order.cancelled| Kafka
     Kafka -->|order.cancelled| Inventory
-    Inventory -->|inventory.released| Kafka
-
     Kafka --> Audit[Audit Service]
 
     Product --> DB[(PostgreSQL)]
@@ -131,6 +149,24 @@ flowchart LR
     Shipment --> DB
     Audit --> DB
     Reports --> DB
+    Admin --> DB
+    Outbox --> DB
+```
+
+### Runtime Layers
+
+```text
+Presentation layer
+  REST controllers, request validation, OpenAPI annotations, centralized exception handling
+
+Application layer
+  Use-case services, reactive orchestration, transactions, DTO mapping
+
+Domain layer
+  Entities, enums, events, request/response DTOs
+
+Infrastructure layer
+  R2DBC repositories, custom SQL repositories, Kafka consumers, outbox publisher, schedulers, configuration
 ```
 
 ---
@@ -205,23 +241,30 @@ Application: 8081
 sequenceDiagram
     participant C as Client
     participant O as Order Service
+    participant OB as Outbox
     participant K as Kafka
     participant I as Inventory Service
     participant P as Payment Service
-    participant S as Shipping Service
+    participant S as Shipment Service
 
     C->>O: POST /orders
-    O->>K: order.created
+    O->>OB: save ORDER_CREATED
+    OB->>K: publish order.created
     K->>I: order.created
-    I->>K: inventory.reserved
+    I->>OB: save INVENTORY_RESERVED
+    OB->>K: publish inventory.reserved
     K->>O: inventory.reserved
-    O->>K: order.confirmed
+    O->>OB: save ORDER_CONFIRMED
+    OB->>K: publish order.confirmed
     K->>P: order.confirmed
-    P->>K: payment.created
+    P->>OB: save PAYMENT_CREATED
+    OB->>K: publish payment.created
     C->>P: PATCH /payments/{id}/complete
-    P->>K: payment.completed
+    P->>OB: save PAYMENT_COMPLETED
+    OB->>K: publish payment.completed
     K->>S: payment.completed
-    S->>K: shipment.created
+    S->>OB: save SHIPMENT_CREATED
+    OB->>K: publish shipment.created
 ```
 
 ### Compensation Path
@@ -229,21 +272,28 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant O as Order Service
+    participant OB as Outbox
     participant K as Kafka
     participant I as Inventory Service
     participant P as Payment Service
 
-    O->>K: order.created
+    O->>OB: save ORDER_CREATED
+    OB->>K: publish order.created
     K->>I: order.created
-    I->>K: inventory.reserved
+    I->>OB: save INVENTORY_RESERVED
+    OB->>K: publish inventory.reserved
     K->>O: inventory.reserved
-    O->>K: order.confirmed
+    O->>OB: save ORDER_CONFIRMED
+    OB->>K: publish order.confirmed
     K->>P: order.confirmed
-    P->>K: payment.failed / payment.expired
+    P->>OB: save PAYMENT_FAILED / PAYMENT_EXPIRED
+    OB->>K: publish payment.failed / payment.expired
     K->>O: payment.failed / payment.expired
-    O->>K: order.cancelled
+    O->>OB: save ORDER_CANCELLED
+    OB->>K: publish order.cancelled
     K->>I: order.cancelled
-    I->>K: inventory.released
+    I->>OB: save INVENTORY_RELEASED
+    OB->>K: publish inventory.released
 ```
 
 ---
@@ -257,11 +307,13 @@ POST /api/v1/orders
    ↓
 Order CREATED
    ↓
-order.created event
+ORDER_CREATED outbox event
+   ↓
+OutboxPublisherScheduler publishes order.created
    ↓
 Inventory reserves stock
    ↓
-inventory.reserved OR inventory.failed
+INVENTORY_RESERVED or INVENTORY_FAILED outbox event
 ```
 
 If inventory is reserved successfully:
@@ -271,11 +323,13 @@ inventory.reserved
    ↓
 Order CONFIRMED
    ↓
-order.confirmed event
+ORDER_CONFIRMED outbox event
+   ↓
+OutboxPublisherScheduler publishes order.confirmed
    ↓
 Payment PENDING is created
    ↓
-payment.created event
+PAYMENT_CREATED outbox event
 ```
 
 If inventory reservation fails:
@@ -299,6 +353,8 @@ PaymentOrderConfirmedConsumer
    ↓
 Payment PENDING
    ↓
+PAYMENT_CREATED outbox event
+   ↓
 payment.created
 ```
 
@@ -308,6 +364,8 @@ Payment can then be completed manually:
 PATCH /api/v1/payments/{id}/complete
    ↓
 Payment COMPLETED
+   ↓
+PAYMENT_COMPLETED outbox event
    ↓
 payment.completed
    ↓
@@ -321,9 +379,13 @@ PATCH /api/v1/payments/{id}/fail
    ↓
 Payment FAILED
    ↓
+PAYMENT_FAILED outbox event
+   ↓
 payment.failed
    ↓
 Order CANCELLED
+   ↓
+ORDER_CANCELLED outbox event
    ↓
 order.cancelled
    ↓
@@ -339,13 +401,17 @@ The system includes a scheduler that expires unpaid payments after a configured 
 ```text
 Payment PENDING
    ↓ after configured expiration period
-Scheduler
+UnpaidPaymentScheduler
    ↓
 Payment EXPIRED
+   ↓
+PAYMENT_EXPIRED outbox event
    ↓
 payment.expired
    ↓
 Order CANCELLED
+   ↓
+ORDER_CANCELLED outbox event
    ↓
 order.cancelled
    ↓
@@ -387,6 +453,8 @@ PaymentEventConsumer
    ↓
 Shipment CREATED
    ↓
+SHIPMENT_CREATED outbox event
+   ↓
 shipment.created
 ```
 
@@ -394,6 +462,14 @@ Shipment status transitions:
 
 ```text
 CREATED -> SHIPPED -> DELIVERED
+```
+
+Each shipment transition is also published through the outbox:
+
+```text
+SHIPMENT_CREATED   -> shipment.created
+SHIPMENT_SHIPPED   -> shipment.shipped
+SHIPMENT_DELIVERED -> shipment.delivered
 ```
 
 Endpoints:
@@ -416,11 +492,13 @@ Inventory is the source of truth for available and reserved stock.
 ```text
 order.created
    ↓
-InventoryOrderCreatedConsumer
+InventoryOrderEventConsumer
    ↓
-reserve inventory items in parallel
+reserve inventory items
    ↓
-inventory.reserved OR inventory.failed
+INVENTORY_RESERVED or INVENTORY_FAILED outbox event
+   ↓
+inventory.reserved or inventory.failed
 ```
 
 ### Release
@@ -428,9 +506,11 @@ inventory.reserved OR inventory.failed
 ```text
 order.cancelled
    ↓
-InventoryOrderCancelledConsumer
+InventoryOrderEventConsumer
    ↓
 release reserved inventory
+   ↓
+INVENTORY_RELEASED outbox event
    ↓
 inventory.released
 ```
@@ -519,6 +599,66 @@ For local development, one partition and one replica are sufficient because the 
 
 ---
 
+## Transactional Outbox Pattern
+
+Business services write domain events to `outbox_events` inside the same reactive transaction as the related state change.
+
+This prevents the common consistency problem where a database change succeeds, but the Kafka publish fails.
+
+```text
+Business transaction
+   ↓
+Save aggregate changes
+   ↓
+Save outbox event in the same transaction
+   ↓
+Commit
+   ↓
+OutboxPublisherScheduler polls publishable events
+   ↓
+Publish to Kafka
+   ↓
+Mark event as PUBLISHED or FAILED
+```
+
+The following lifecycle events are published through the outbox:
+
+```text
+ORDER_CREATED
+ORDER_CONFIRMED
+ORDER_CANCELLED
+
+INVENTORY_RESERVED
+INVENTORY_FAILED
+INVENTORY_RELEASED
+
+PAYMENT_CREATED
+PAYMENT_COMPLETED
+PAYMENT_FAILED
+PAYMENT_EXPIRED
+
+SHIPMENT_CREATED
+SHIPMENT_SHIPPED
+SHIPMENT_DELIVERED
+```
+
+Outbox publishing is configurable:
+
+```yaml
+orderflow:
+  scheduler:
+    outbox:
+      enabled: true
+      fixed-delay-ms: 5000
+      max-retries: 5
+```
+
+Failed outbox events can be inspected and manually retried through the admin API.
+
+Only `FAILED` outbox events can be manually retried to avoid duplicate publishing of already `PUBLISHED` events.
+
+---
+
 ## Reporting Module
 
 The reporting module is read-only and uses custom SQL aggregation queries via `DatabaseClient`.
@@ -549,6 +689,53 @@ Mono.zip(
 ```
 
 This demonstrates one of the practical advantages of reactive programming: independent non-blocking operations can be composed and resolved together.
+
+---
+
+## Admin Module
+
+The admin module exposes operational views over the system without taking ownership of the core business workflows.
+
+### Admin Dashboard
+
+```http
+GET /api/v1/admin/dashboard
+```
+
+The dashboard is served by `AdminService` and combines order, payment, revenue, inventory, top-product, and outbox summaries through parallel repository calls.
+
+### Admin Audit Events
+
+`AdminAuditController` exposes paged access to stored audit events:
+
+```http
+GET /api/v1/admin/audit-events
+GET /api/v1/admin/audit-events/{id}
+GET /api/v1/admin/audit-events/orders/{orderId}
+```
+
+These endpoints are read-only and delegate to `AdminService`, which reads `audit_events`, validates page and size limits, and returns `PagedResponse<AuditEventResponse>`.
+
+### Admin Outbox Events
+
+```http
+GET   /api/v1/admin/outbox-events
+GET   /api/v1/admin/outbox-events/{id}
+PATCH /api/v1/admin/outbox-events/{id}/retry
+```
+
+Outbox events can be listed, filtered by status, inspected by id, and manually moved from `FAILED` back to `PENDING` for retry.
+
+Only `FAILED` events can be retried manually.
+
+### Admin User Actions
+
+```http
+PATCH /api/v1/admin/users/{id}/block
+PATCH /api/v1/admin/users/{id}/activate
+```
+
+These endpoints reuse `UserService` so administrative status changes follow the same validation rules as the rest of the user domain.
 
 ---
 
@@ -619,6 +806,20 @@ GET /api/v1/reports/top-products
 GET /api/v1/reports/dashboard
 ```
 
+### Admin
+
+```http
+GET   /api/v1/admin/dashboard
+GET   /api/v1/admin/audit-events
+GET   /api/v1/admin/audit-events/{id}
+GET   /api/v1/admin/audit-events/orders/{orderId}
+GET   /api/v1/admin/outbox-events
+GET   /api/v1/admin/outbox-events/{id}
+PATCH /api/v1/admin/outbox-events/{id}/retry
+PATCH /api/v1/admin/users/{id}/block
+PATCH /api/v1/admin/users/{id}/activate
+```
+
 ---
 
 ## Order Lifecycle
@@ -683,6 +884,29 @@ CREATED -> SHIPPED -> DELIVERED
 
 ---
 
+## User Lifecycle
+
+User roles:
+
+```text
+CUSTOMER
+ADMIN
+```
+
+User statuses:
+
+```text
+ACTIVE
+BLOCKED
+DELETED
+```
+
+Blocked or deleted users cannot create new orders.
+
+Admin endpoints can block or reactivate users.
+
+---
+
 ## Reactive Highlights
 
 ### Parallel Inventory Reservation
@@ -710,6 +934,22 @@ return Mono.zip(
 .map(tuple -> new DashboardReportResponse(...));
 ```
 
+### Parallel Admin Dashboard Aggregation
+
+The admin dashboard also combines multiple independent operational queries:
+
+```java
+return Mono.zip(
+        ordersMono,
+        paymentsMono,
+        revenueMono,
+        inventoryMono,
+        topProductsMono,
+        outboxMono
+)
+.map(tuple -> new AdminDashboardResponse(...));
+```
+
 ### Reactive Transactions
 
 Important business operations are wrapped in reactive transactions using `TransactionalOperator`.
@@ -721,6 +961,13 @@ Examples:
 * inventory release
 * order confirmation from inventory event
 * order cancellation from payment failure
+* payment creation
+* payment completion
+* payment failure
+* payment expiration
+* shipment creation
+* shipment shipping
+* shipment delivery
 
 ---
 
@@ -746,13 +993,15 @@ payload
 created_at
 ```
 
+Audit events can be inspected through admin endpoints.
+
 ---
 
 ## Configuration Philosophy
 
 The project avoids hardcoded infrastructure settings.
 
-Kafka topics, consumer groups, topic settings, report limits, scheduler settings, and other configurable values are defined in `application.yml` and loaded through `@ConfigurationProperties` classes.
+Kafka topics, consumer groups, topic settings, report limits, scheduler settings, and other configurable values are defined in `application.yaml` and loaded through `@ConfigurationProperties` classes.
 
 Examples:
 
@@ -779,28 +1028,41 @@ orderflow:
       enabled: true
       expiration-days: 3
       fixed-delay-ms: 3600000
+    outbox:
+      enabled: true
+      fixed-delay-ms: 5000
+      max-retries: 5
 ```
+
+For Kubernetes or production-like environments, these values can be overridden through environment variables while local defaults remain usable for development.
 
 ---
 
 ## Example End-to-End Happy Path
 
 ```text
-1. Create order
-2. Order status becomes CREATED
-3. order.created is published
-4. Inventory reserves stock
-5. inventory.reserved is published
-6. Order status becomes CONFIRMED
-7. order.confirmed is published
-8. Payment is created with PENDING status
-9. payment.created is published
-10. Payment is completed manually
-11. payment.completed is published
-12. Shipment is created
-13. shipment.created is published
-14. Shipment is marked as SHIPPED
-15. Shipment is marked as DELIVERED
+1. Create products and users
+2. Create inventory records for products
+3. Create an order
+4. ORDER_CREATED is saved to the outbox
+5. OutboxPublisherScheduler publishes order.created
+6. Inventory reserves stock
+7. INVENTORY_RESERVED is saved to the outbox
+8. OutboxPublisherScheduler publishes inventory.reserved
+9. Order status becomes CONFIRMED
+10. ORDER_CONFIRMED is saved to the outbox
+11. Payment is created with PENDING status
+12. PAYMENT_CREATED is saved to the outbox
+13. Payment is completed manually
+14. PAYMENT_COMPLETED is saved to the outbox
+15. Shipment is created
+16. SHIPMENT_CREATED is saved to the outbox
+17. Shipment is marked as SHIPPED
+18. Shipment is marked as DELIVERED
+19. Open reporting dashboard
+20. Open admin dashboard
+21. Inspect outbox events
+22. Inspect audit events for the created order
 ```
 
 ---
@@ -808,15 +1070,20 @@ orderflow:
 ## Example Failure / Compensation Path
 
 ```text
-1. Create order
+1. Create an order
 2. Inventory reserves stock
 3. Payment is created with PENDING status
 4. Payment fails or expires
-5. payment.failed or payment.expired is published
-6. Order is cancelled
-7. order.cancelled is published
-8. Inventory releases reserved stock
-9. inventory.released is published
+5. PAYMENT_FAILED or PAYMENT_EXPIRED is saved to the outbox
+6. OutboxPublisherScheduler publishes payment.failed or payment.expired
+7. Order is cancelled
+8. ORDER_CANCELLED is saved to the outbox
+9. OutboxPublisherScheduler publishes order.cancelled
+10. Inventory releases reserved stock
+11. INVENTORY_RELEASED is saved to the outbox
+12. OutboxPublisherScheduler publishes inventory.released
+13. Check audit events for the cancelled order
+14. Check outbox events and confirm all related events are PUBLISHED
 ```
 
 ---
@@ -828,11 +1095,13 @@ This project demonstrates several backend engineering concepts that are useful i
 * Reactive REST APIs with WebFlux
 * Non-blocking PostgreSQL access with R2DBC
 * Event-driven business workflows with Kafka
+* Transactional Outbox Pattern for reliable event publishing
 * Saga-like compensation through events
 * Inventory reservation and release logic
 * Payment expiration through scheduled jobs
 * Reporting read models with custom SQL
 * Parallel dashboard aggregation with `Mono.zip(...)`
+* Operational admin APIs for outbox and audit inspection
 * Centralized configuration through `application.yml`
 * Modular monolith structure ready for microservice extraction
 
@@ -846,13 +1115,17 @@ A good demo sequence for the project is:
 1. Create products and users
 2. Create inventory records from products
 3. Create an order
-4. Watch order.created in Kafka UI
-5. Watch inventory.reserved and order.confirmed
-6. Check payment PENDING
-7. Complete payment manually
-8. Watch payment.completed and shipment.created
-9. Mark shipment as SHIPPED and DELIVERED
-10. Open reporting dashboard
+4. Watch ORDER_CREATED in outbox_events
+5. Watch order.created in Kafka UI
+6. Watch INVENTORY_RESERVED and ORDER_CONFIRMED through outbox_events
+7. Check payment PENDING
+8. Complete payment manually
+9. Watch PAYMENT_COMPLETED and SHIPMENT_CREATED through outbox_events
+10. Mark shipment as SHIPPED and DELIVERED
+11. Open reporting dashboard
+12. Open admin dashboard
+13. Inspect outbox events
+14. Inspect audit events for the created order
 ```
 
 Failure scenario:
@@ -861,9 +1134,12 @@ Failure scenario:
 1. Create an order
 2. Let payment stay PENDING
 3. Scheduler expires the payment
-4. payment.expired is published
-5. Order is cancelled
-6. Inventory is released
+4. PAYMENT_EXPIRED is saved to the outbox
+5. payment.expired is published
+6. Order is cancelled
+7. Inventory is released
+8. Check audit events for the cancelled order
+9. Check outbox events and confirm all related events are PUBLISHED
 ```
 
 ---
@@ -872,8 +1148,8 @@ Failure scenario:
 
 Potential next steps:
 
-* Outbox Pattern for reliable event publishing
 * Dead-letter topics for failed Kafka messages
+* Idempotent Kafka consumers for duplicate event protection
 * Optimistic locking for inventory concurrency
 * Integration tests with Testcontainers
 * Separate modules or microservices per bounded context
@@ -891,15 +1167,21 @@ Implemented:
 
 * Product CRUD
 * User CRUD
+* User role and status management
+* Admin user block and activate actions
 * Order lifecycle
 * Inventory reservation and release
 * Payment lifecycle
 * Scheduled payment expiration
 * Shipping lifecycle
-* Kafka producer and consumer flows
+* Kafka consumer flows
+* Reliable Kafka publishing through transactional outbox
+* Outbox event persistence and scheduled publishing
+* Outbox retry support
 * Audit event persistence
+* Admin dashboard
+* Admin audit and outbox endpoints
 * Reporting dashboard
 * Top products report
 * Swagger/OpenAPI support
 * Docker-based local infrastructure
-
