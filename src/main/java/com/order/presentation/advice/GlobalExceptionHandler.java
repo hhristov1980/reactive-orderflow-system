@@ -20,26 +20,8 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneralException(
-            Exception ex,
-            ServerHttpRequest request
-    ) {
-
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                HttpStatus.INTERNAL_SERVER_ERROR.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(response);
-    }
-
     @ExceptionHandler({
+            AuditEventNotFoundException.class,
             UserNotFoundException.class,
             ProductNotFoundException.class,
             OrderNotFoundException.class,
@@ -67,110 +49,29 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({
-            WebExchangeBindException.class,
-            ResponseStatusException.class,
-            HandlerMethodValidationException.class})
-    public ResponseEntity<ErrorResponse> handleValidation(
-            Exception ex,
-            ServerHttpRequest request
-    ) {
-        String message = "Validation failure";
-
-        if (ex instanceof WebExchangeBindException bindEx) {
-            message = extractBindingErrors(bindEx.getBindingResult());
-        }
-        else if (ex instanceof HandlerMethodValidationException validationEx) {
-            message = validationEx.getValueResults().stream()
-                    .map(result -> {
-                        String paramName = result.getMethodParameter().getParameterName();
-                        String errorMsg = result.getResolvableErrors().stream()
-                                .map(MessageSourceResolvable::getDefaultMessage)
-                                .collect(Collectors.joining(", "));
-
-                        return (paramName != null ? paramName : "parameter") + ": " + errorMsg;
-                    })
-                    .collect(Collectors.joining("; "));
-        }
-        else if (ex instanceof ResponseStatusException statusEx) {
-            message = statusEx.getReason();
-        }
-
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.BAD_REQUEST.value(),
-                HttpStatus.BAD_REQUEST.getReasonPhrase(),
-                message,
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
-    }
-
-    @ExceptionHandler(ServerWebInputException.class)
-    public ResponseEntity<ErrorResponse> handleServerWebInput(
-            ServerWebInputException ex,
-            ServerHttpRequest request
-    ) {
-        String message = "Invalid input";
-
-        if (ex instanceof WebExchangeBindException bindEx) {
-            message = bindEx.getBindingResult()
-                    .getFieldErrors()
-                    .stream()
-                    .map(f -> f.getField() + ": " + f.getDefaultMessage())
-                    .collect(Collectors.joining(", "));
-        }
-        else {
-            Throwable rootCause = ex.getMostSpecificCause();
-            if (rootCause instanceof IllegalArgumentException && rootCause.getMessage().contains("No enum constant")) {
-                String fullMessage = rootCause.getMessage();
-                String invalidValue = fullMessage.substring(fullMessage.lastIndexOf('.') + 1);
-
-                message = String.format("Invalid value '%s' for parameter. Please provide a valid sort field.", invalidValue);
-            } else {
-                message = ex.getReason();
-            }
-        }
-
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.BAD_REQUEST.value(),
-                "INVALID_PARAMETER_TYPE",
-                message,
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity.badRequest().body(response);
-    }
-
-    @ExceptionHandler({
             UserAlreadyBlockedException.class,
             UserAlreadyActiveException.class,
             UserDeletedException.class,
             UserBlockedException.class,
+            UserEmailAlreadyExistsException.class,
+
             OutboxEventCannotBeRetriedException.class,
-            UserEmailAlreadyExistsException.class
+
+            InsufficientStockException.class,
+
+            OrderAlreadyCancelledException.class,
+            OrderAlreadyConfirmedException.class,
+            OrderCannotBeConfirmedException.class,
+            OrderCannotBeCancelledException.class,
+
+            ShipmentAlreadyExistsException.class,
+            ShipmentInvalidStatusTransitionException.class,
+
+            PaymentAlreadyExistsException.class,
+            PaymentInvalidStatusTransitionException.class
     })
-    public ResponseEntity<ErrorResponse> handleUserStateConflict(
+    public ResponseEntity<ErrorResponse> handleConflict(
             RuntimeException ex,
-            ServerHttpRequest request
-    ) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                HttpStatus.CONFLICT.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(response);
-    }
-
-    @ExceptionHandler(InsufficientStockException.class)
-    public ResponseEntity<ErrorResponse> handleInsufficientStock(
-            InsufficientStockException ex,
             ServerHttpRequest request
     ) {
         ErrorResponse response = new ErrorResponse(
@@ -204,127 +105,119 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
-    @ExceptionHandler(OrderAlreadyCancelledException.class)
-    public ResponseEntity<ErrorResponse> handleOrderAlreadyCancelled(
-            OrderAlreadyCancelledException ex,
-            ServerHttpRequest request
-    ) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                HttpStatus.CONFLICT.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(response);
-    }
-
-    @ExceptionHandler(OrderAlreadyConfirmedException.class)
-    public ResponseEntity<ErrorResponse> handleOrderAlreadyConfirmed(
-            OrderAlreadyConfirmedException ex,
-            ServerHttpRequest request
-    ) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                HttpStatus.CONFLICT.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(response);
-    }
-
-    @ExceptionHandler(OrderCannotBeConfirmedException.class)
-    public ResponseEntity<ErrorResponse> handleOrderCannotBeConfirmed(
-            OrderCannotBeConfirmedException ex,
-            ServerHttpRequest request
-    ) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                HttpStatus.CONFLICT.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(response);
-    }
-
-    @ExceptionHandler(OrderCannotBeCancelledException.class)
-    public ResponseEntity<ErrorResponse> handleOrderCannotBeCancelled(
-            OrderCannotBeCancelledException ex,
-            ServerHttpRequest request
-    ) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                HttpStatus.CONFLICT.name(),
-                ex.getMessage(),
-                request.getPath().value(),
-                OffsetDateTime.now()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(response);
-    }
-
     @ExceptionHandler({
-            ShipmentAlreadyExistsException.class,
-            ShipmentInvalidStatusTransitionException.class
+            WebExchangeBindException.class,
+            ResponseStatusException.class,
+            HandlerMethodValidationException.class
     })
-    public ResponseEntity<ErrorResponse> handleShipmentConflict(
-            RuntimeException ex,
+    public ResponseEntity<ErrorResponse> handleValidation(
+            Exception ex,
             ServerHttpRequest request
     ) {
+        String message = "Validation failure";
+
+        if (ex instanceof WebExchangeBindException bindEx) {
+            message = extractBindingErrors(bindEx.getBindingResult());
+        } else if (ex instanceof HandlerMethodValidationException validationEx) {
+            message = validationEx.getValueResults()
+                    .stream()
+                    .map(result -> {
+                        String paramName =
+                                result.getMethodParameter().getParameterName();
+
+                        String errorMsg =
+                                result.getResolvableErrors()
+                                        .stream()
+                                        .map(MessageSourceResolvable::getDefaultMessage)
+                                        .collect(Collectors.joining(", "));
+
+                        return (paramName != null ? paramName : "parameter")
+                                + ": "
+                                + errorMsg;
+                    })
+                    .collect(Collectors.joining("; "));
+        } else if (ex instanceof ResponseStatusException statusEx) {
+            message = statusEx.getReason();
+        }
+
         ErrorResponse response = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                HttpStatus.CONFLICT.name(),
-                ex.getMessage(),
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.name(),
+                message,
                 request.getPath().value(),
                 OffsetDateTime.now()
         );
 
         return ResponseEntity
-                .status(HttpStatus.CONFLICT)
+                .badRequest()
                 .body(response);
     }
 
-    @ExceptionHandler({
-            PaymentAlreadyExistsException.class,
-            PaymentInvalidStatusTransitionException.class
-    })
-    public ResponseEntity<ErrorResponse> handlePaymentConflict(
-            RuntimeException ex,
+    @ExceptionHandler(ServerWebInputException.class)
+    public ResponseEntity<ErrorResponse> handleServerWebInput(
+            ServerWebInputException ex,
+            ServerHttpRequest request
+    ) {
+        String message = "Invalid input";
+
+        Throwable rootCause = ex.getMostSpecificCause();
+
+        if (
+                rootCause instanceof IllegalArgumentException
+                        && rootCause.getMessage() != null
+                        && rootCause.getMessage().contains("No enum constant")
+        ) {
+            String fullMessage = rootCause.getMessage();
+            String invalidValue =
+                    fullMessage.substring(fullMessage.lastIndexOf('.') + 1);
+
+            message = String.format(
+                    "Invalid value '%s' for parameter. Please provide a valid value.",
+                    invalidValue
+            );
+        } else if (ex.getReason() != null) {
+            message = ex.getReason();
+        }
+
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                "INVALID_PARAMETER_TYPE",
+                message,
+                request.getPath().value(),
+                OffsetDateTime.now()
+        );
+
+        return ResponseEntity
+                .badRequest()
+                .body(response);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleGeneralException(
+            Exception ex,
             ServerHttpRequest request
     ) {
         ErrorResponse response = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                HttpStatus.CONFLICT.name(),
+                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                HttpStatus.INTERNAL_SERVER_ERROR.name(),
                 ex.getMessage(),
                 request.getPath().value(),
                 OffsetDateTime.now()
         );
 
         return ResponseEntity
-                .status(HttpStatus.CONFLICT)
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(response);
     }
 
     private String extractBindingErrors(BindingResult bindingResult) {
         return bindingResult.getFieldErrors()
                 .stream()
-                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .map(error ->
+                        error.getField()
+                                + ": "
+                                + error.getDefaultMessage()
+                )
                 .collect(Collectors.joining(", "));
     }
-
-
-
 }
