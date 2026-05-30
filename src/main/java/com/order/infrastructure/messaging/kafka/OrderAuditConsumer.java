@@ -7,6 +7,7 @@ import com.order.domain.event.OrderCancelledEvent;
 import com.order.domain.event.OrderConfirmedEvent;
 import com.order.domain.event.OrderCreatedEvent;
 import com.order.infrastructure.config.properties.OrderKafkaProperties;
+import com.order.infrastructure.observability.KafkaEventMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -24,6 +25,8 @@ public class OrderAuditConsumer {
 
     private final ObjectMapper objectMapper;
     private final AuditService auditService;
+    private final OrderKafkaProperties kafkaProperties;
+    private final KafkaEventMetrics kafkaEventMetrics;
 
     @KafkaListener(
             topics = "#{@orderKafkaProperties.topics.orderCreated}",
@@ -34,6 +37,7 @@ public class OrderAuditConsumer {
 
         OrderCreatedEvent event =
                 readEvent(payload, OrderCreatedEvent.class);
+        String topic = kafkaProperties.getTopics().getOrderCreated();
 
         log.info(
                 "AUDIT: Order created. orderId={}, userId={}, totalAmount={}, items={}",
@@ -48,7 +52,14 @@ public class OrderAuditConsumer {
                 AGGREGATE_TYPE_ORDER,
                 event.orderId(),
                 payload
-        ).block();
+        )
+                .doOnSuccess(ignored ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
+                )
+                .doOnError(error ->
+                        kafkaEventMetrics.recordConsumerFailure(topic, error)
+                )
+                .block();
     }
 
     @KafkaListener(
@@ -60,6 +71,7 @@ public class OrderAuditConsumer {
 
         OrderConfirmedEvent event =
                 readEvent(payload, OrderConfirmedEvent.class);
+        String topic = kafkaProperties.getTopics().getOrderConfirmed();
 
         log.info(
                 "AUDIT: Order confirmed. orderId={}, userId={}, confirmedAt={}",
@@ -73,7 +85,14 @@ public class OrderAuditConsumer {
                 AGGREGATE_TYPE_ORDER,
                 event.orderId(),
                 payload
-        ).block();
+        )
+                .doOnSuccess(ignored ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
+                )
+                .doOnError(error ->
+                        kafkaEventMetrics.recordConsumerFailure(topic, error)
+                )
+                .block();
     }
 
     @KafkaListener(
@@ -85,6 +104,7 @@ public class OrderAuditConsumer {
 
         OrderCancelledEvent event =
                 readEvent(payload, OrderCancelledEvent.class);
+        String topic = kafkaProperties.getTopics().getOrderCancelled();
 
         log.info(
                 "AUDIT: Order cancelled. orderId={}, userId={}, cancelledAt={}",
@@ -98,7 +118,14 @@ public class OrderAuditConsumer {
                 AGGREGATE_TYPE_ORDER,
                 event.orderId(),
                 payload
-        ).block();
+        )
+                .doOnSuccess(ignored ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
+                )
+                .doOnError(error ->
+                        kafkaEventMetrics.recordConsumerFailure(topic, error)
+                )
+                .block();
     }
 
     private <T> T readEvent(

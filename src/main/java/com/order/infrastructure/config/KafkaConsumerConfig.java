@@ -1,9 +1,10 @@
 package com.order.infrastructure.config;
 
 import com.order.infrastructure.config.properties.OrderKafkaProperties;
+import com.order.infrastructure.observability.KafkaEventMetrics;
 import lombok.RequiredArgsConstructor;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -70,16 +71,26 @@ public class KafkaConsumerConfig {
 
     @Bean
     public DefaultErrorHandler kafkaErrorHandler(
-            KafkaTemplate<String, String> kafkaTemplate
+            KafkaTemplate<String, String> kafkaTemplate,
+            KafkaEventMetrics kafkaEventMetrics
     ) {
         DeadLetterPublishingRecoverer recoverer =
                 new DeadLetterPublishingRecoverer(
                         kafkaTemplate,
-                        (record, exception) ->
-                                new TopicPartition(
-                                        record.topic() + ".DLT",
-                                        record.partition()
-                                )
+                        (record, exception) -> {
+                            String deadLetterTopic = record.topic() + ".DLT";
+
+                            kafkaEventMetrics.recordDeadLetterPublished(
+                                    record,
+                                    deadLetterTopic,
+                                    exception
+                            );
+
+                            return new TopicPartition(
+                                    deadLetterTopic,
+                                    record.partition()
+                            );
+                        }
                 );
 
         DefaultErrorHandler errorHandler =

@@ -15,6 +15,8 @@ import com.order.domain.event.OrderCancelledEvent;
 import com.order.domain.event.OrderCreatedEvent;
 import com.order.domain.event.OrderItemEvent;
 import com.order.infrastructure.config.properties.OrderKafkaProperties;
+import com.order.infrastructure.observability.KafkaEventMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
@@ -40,12 +42,16 @@ class InventoryOrderEventConsumerTest {
     private final OrderKafkaProperties kafkaProperties =
             kafkaProperties();
 
+    private final SimpleMeterRegistry meterRegistry =
+            new SimpleMeterRegistry();
+
     private final InventoryOrderEventConsumer consumer =
             new InventoryOrderEventConsumer(
                     objectMapper,
                     inventoryService,
                     outboxService,
-                    kafkaProperties
+                    kafkaProperties,
+                    new KafkaEventMetrics(meterRegistry)
             );
 
     @Test
@@ -74,6 +80,8 @@ class InventoryOrderEventConsumerTest {
 
         assertEquals(event.orderId(), failedEvent.orderId());
         assertEquals("insufficient inventory", failedEvent.reason());
+        assertInventoryFailureCounter(1.0);
+        assertConsumerCounter("success", "none", 1.0);
     }
 
     private String toJson(Object value) throws Exception {
@@ -101,8 +109,33 @@ class InventoryOrderEventConsumerTest {
                 new OrderKafkaProperties();
 
         properties.getTopics().setInventoryFailed("inventory.failed");
+        properties.getTopics().setOrderCreated("order.created");
 
         return properties;
+    }
+
+    private void assertInventoryFailureCounter(double expectedCount) {
+        double count = meterRegistry.get("orderflow.inventory.reservation.failures")
+                .tag("exception", "IllegalStateException")
+                .counter()
+                .count();
+
+        assertEquals(expectedCount, count);
+    }
+
+    private void assertConsumerCounter(
+            String outcome,
+            String exception,
+            double expectedCount
+    ) {
+        double count = meterRegistry.get("orderflow.kafka.consumer.events")
+                .tag("topic", "order.created")
+                .tag("outcome", outcome)
+                .tag("exception", exception)
+                .counter()
+                .count();
+
+        assertEquals(expectedCount, count);
     }
 
     private static final class FakeInventoryService implements InventoryService {

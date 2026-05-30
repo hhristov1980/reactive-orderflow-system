@@ -8,6 +8,7 @@ import com.order.domain.event.InventoryFailedEvent;
 import com.order.domain.event.OrderCancelledEvent;
 import com.order.domain.event.OrderCreatedEvent;
 import com.order.infrastructure.config.properties.OrderKafkaProperties;
+import com.order.infrastructure.observability.KafkaEventMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -28,6 +29,7 @@ public class InventoryOrderEventConsumer {
     private final InventoryService inventoryService;
     private final OutboxService outboxService;
     private final OrderKafkaProperties kafkaProperties;
+    private final KafkaEventMetrics kafkaEventMetrics;
 
     @KafkaListener(
             topics = "#{@orderKafkaProperties.topics.orderCreated}",
@@ -37,6 +39,7 @@ public class InventoryOrderEventConsumer {
     public void consumeOrderCreated(String payload) {
         OrderCreatedEvent event =
                 readEvent(payload, OrderCreatedEvent.class);
+        String topic = kafkaProperties.getTopics().getOrderCreated();
 
         log.info(
                 "INVENTORY: Received order.created for orderId={}",
@@ -51,7 +54,20 @@ public class InventoryOrderEventConsumer {
                         )
                 )
                 .then()
-                .onErrorResume(error -> saveInventoryFailedEvent(event, error))
+                .doOnSuccess(ignored ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
+                )
+                .onErrorResume(error -> {
+                    kafkaEventMetrics.recordInventoryReservationFailure(error);
+
+                    return saveInventoryFailedEvent(event, error)
+                            .doOnSuccess(ignored ->
+                                    kafkaEventMetrics.recordConsumerSuccess(topic)
+                            );
+                })
+                .doOnError(error ->
+                        kafkaEventMetrics.recordConsumerFailure(topic, error)
+                )
                 .block();
     }
 
@@ -63,6 +79,7 @@ public class InventoryOrderEventConsumer {
     public void consumeOrderCancelled(String payload) {
         OrderCancelledEvent event =
                 readEvent(payload, OrderCancelledEvent.class);
+        String topic = kafkaProperties.getTopics().getOrderCancelled();
 
         log.info(
                 "INVENTORY: Received order.cancelled for orderId={}",
@@ -77,13 +94,18 @@ public class InventoryOrderEventConsumer {
                         )
                 )
                 .then()
-                .doOnError(error ->
-                        log.error(
-                                "INVENTORY: Failed to release inventory for cancelled orderId={}",
-                                event.orderId(),
-                                error
-                        )
+                .doOnSuccess(ignored ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
                 )
+                .doOnError(error -> {
+                    kafkaEventMetrics.recordConsumerFailure(topic, error);
+
+                    log.error(
+                            "INVENTORY: Failed to release inventory for cancelled orderId={}",
+                            event.orderId(),
+                            error
+                    );
+                })
                 .block();
     }
 
