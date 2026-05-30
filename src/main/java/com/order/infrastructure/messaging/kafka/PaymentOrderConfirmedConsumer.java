@@ -3,18 +3,13 @@ package com.order.infrastructure.messaging.kafka;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.order.application.service.PaymentService;
-import com.order.domain.entity.Payment;
-import com.order.domain.enums.PaymentStatus;
 import com.order.domain.event.OrderConfirmedEvent;
-import com.order.domain.event.PaymentExpiredEvent;
 import com.order.exception.PaymentAlreadyExistsException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
-
-import java.time.OffsetDateTime;
 
 @Component
 @RequiredArgsConstructor
