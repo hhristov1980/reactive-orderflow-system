@@ -7,6 +7,9 @@ import com.order.domain.dto.response.PaymentResponse;
 import com.order.domain.enums.PaymentStatus;
 import com.order.domain.event.OrderConfirmedEvent;
 import com.order.exception.PaymentAlreadyExistsException;
+import com.order.infrastructure.config.properties.OrderKafkaProperties;
+import com.order.infrastructure.observability.KafkaEventMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
@@ -25,10 +28,18 @@ class PaymentOrderConfirmedConsumerTest {
     private final FakePaymentService paymentService =
             new FakePaymentService();
 
+    private final OrderKafkaProperties kafkaProperties =
+            kafkaProperties();
+
+    private final SimpleMeterRegistry meterRegistry =
+            new SimpleMeterRegistry();
+
     private final PaymentOrderConfirmedConsumer consumer =
             new PaymentOrderConfirmedConsumer(
                     objectMapper,
-                    paymentService
+                    paymentService,
+                    kafkaProperties,
+                    new KafkaEventMetrics(meterRegistry)
             );
 
     @Test
@@ -42,6 +53,7 @@ class PaymentOrderConfirmedConsumerTest {
         );
 
         assertEquals(event, paymentService.receivedEvent);
+        assertCounter("success", "none", 1.0);
     }
 
     @Test
@@ -56,6 +68,7 @@ class PaymentOrderConfirmedConsumerTest {
         );
 
         assertEquals(event, paymentService.receivedEvent);
+        assertCounter("duplicate", "none", 1.0);
     }
 
     @Test
@@ -71,6 +84,7 @@ class PaymentOrderConfirmedConsumerTest {
         );
 
         assertEquals(event, paymentService.receivedEvent);
+        assertCounter("failure", "IllegalStateException", 1.0);
     }
 
     private String toJson(Object value) throws Exception {
@@ -103,6 +117,29 @@ class PaymentOrderConfirmedConsumerTest {
                 null,
                 null
         );
+    }
+
+    private OrderKafkaProperties kafkaProperties() {
+        OrderKafkaProperties properties = new OrderKafkaProperties();
+
+        properties.getTopics().setOrderConfirmed("order.confirmed");
+
+        return properties;
+    }
+
+    private void assertCounter(
+            String outcome,
+            String exception,
+            double expectedCount
+    ) {
+        double count = meterRegistry.get("orderflow.kafka.consumer.events")
+                .tag("topic", "order.confirmed")
+                .tag("outcome", outcome)
+                .tag("exception", exception)
+                .counter()
+                .count();
+
+        assertEquals(expectedCount, count);
     }
 
     private static final class FakePaymentService implements PaymentService {

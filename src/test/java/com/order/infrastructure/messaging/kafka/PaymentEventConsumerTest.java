@@ -13,6 +13,9 @@ import com.order.domain.enums.ShipmentStatus;
 import com.order.domain.enums.SortDirection;
 import com.order.domain.event.PaymentCompletedEvent;
 import com.order.exception.ShipmentAlreadyExistsException;
+import com.order.infrastructure.config.properties.OrderKafkaProperties;
+import com.order.infrastructure.observability.KafkaEventMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
@@ -34,11 +37,19 @@ class PaymentEventConsumerTest {
     private final OrderService orderService =
             new NoopOrderService();
 
+    private final OrderKafkaProperties kafkaProperties =
+            kafkaProperties();
+
+    private final SimpleMeterRegistry meterRegistry =
+            new SimpleMeterRegistry();
+
     private final PaymentEventConsumer consumer =
             new PaymentEventConsumer(
                     objectMapper,
                     shipmentService,
-                    orderService
+                    orderService,
+                    kafkaProperties,
+                    new KafkaEventMetrics(meterRegistry)
             );
 
     @Test
@@ -52,6 +63,7 @@ class PaymentEventConsumerTest {
         );
 
         assertEquals(event, shipmentService.receivedEvent);
+        assertCounter("success", "none", 1.0);
     }
 
     @Test
@@ -66,6 +78,7 @@ class PaymentEventConsumerTest {
         );
 
         assertEquals(event, shipmentService.receivedEvent);
+        assertCounter("duplicate", "none", 1.0);
     }
 
     @Test
@@ -81,6 +94,7 @@ class PaymentEventConsumerTest {
         );
 
         assertEquals(event, shipmentService.receivedEvent);
+        assertCounter("failure", "IllegalStateException", 1.0);
     }
 
     private String toJson(Object value) throws Exception {
@@ -111,6 +125,29 @@ class PaymentEventConsumerTest {
                 null,
                 null
         );
+    }
+
+    private OrderKafkaProperties kafkaProperties() {
+        OrderKafkaProperties properties = new OrderKafkaProperties();
+
+        properties.getTopics().setPaymentCompleted("payment.completed");
+
+        return properties;
+    }
+
+    private void assertCounter(
+            String outcome,
+            String exception,
+            double expectedCount
+    ) {
+        double count = meterRegistry.get("orderflow.kafka.consumer.events")
+                .tag("topic", "payment.completed")
+                .tag("outcome", outcome)
+                .tag("exception", exception)
+                .counter()
+                .count();
+
+        assertEquals(expectedCount, count);
     }
 
     private static final class FakeShipmentService implements ShipmentService {

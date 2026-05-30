@@ -8,6 +8,8 @@ import com.order.domain.event.PaymentCompletedEvent;
 import com.order.domain.event.PaymentExpiredEvent;
 import com.order.domain.event.PaymentFailedEvent;
 import com.order.exception.ShipmentAlreadyExistsException;
+import com.order.infrastructure.config.properties.OrderKafkaProperties;
+import com.order.infrastructure.observability.KafkaEventMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -22,6 +24,8 @@ public class PaymentEventConsumer {
     private final ObjectMapper objectMapper;
     private final ShipmentService shipmentService;
     private final OrderService orderService;
+    private final OrderKafkaProperties kafkaProperties;
+    private final KafkaEventMetrics kafkaEventMetrics;
 
     @KafkaListener(
             topics = "#{@orderKafkaProperties.topics.paymentCompleted}",
@@ -31,6 +35,7 @@ public class PaymentEventConsumer {
     public void consumePaymentCompleted(String payload) {
         PaymentCompletedEvent event =
                 readEvent(payload, PaymentCompletedEvent.class);
+        String topic = kafkaProperties.getTopics().getPaymentCompleted();
 
         log.info(
                 "PAYMENT: Received payment.completed for orderId={}",
@@ -38,19 +43,26 @@ public class PaymentEventConsumer {
         );
 
         shipmentService.createFromPaymentCompleted(event)
-                .doOnError(error ->
-                        log.error(
-                                "PAYMENT: Failed to create shipment from payment.completed. orderId={}",
-                                event.orderId(),
-                                error
-                        )
+                .doOnSuccess(shipment ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
                 )
                 .onErrorResume(ShipmentAlreadyExistsException.class, error -> {
+                    kafkaEventMetrics.recordConsumerDuplicate(topic);
+
                     log.info(
                             "PAYMENT: Shipment already exists for orderId={}; treating duplicate payment.completed as processed",
                             event.orderId()
                     );
                     return Mono.empty();
+                })
+                .doOnError(error -> {
+                    kafkaEventMetrics.recordConsumerFailure(topic, error);
+
+                    log.error(
+                            "PAYMENT: Failed to create shipment from payment.completed. orderId={}",
+                            event.orderId(),
+                            error
+                    );
                 })
                 .block();
     }
@@ -63,6 +75,7 @@ public class PaymentEventConsumer {
     public void consumePaymentFailed(String payload) {
         PaymentFailedEvent event =
                 readEvent(payload, PaymentFailedEvent.class);
+        String topic = kafkaProperties.getTopics().getPaymentFailed();
 
         log.info(
                 "PAYMENT: Received payment.failed for orderId={}, reason={}",
@@ -74,13 +87,18 @@ public class PaymentEventConsumer {
                         event.orderId(),
                         event.reason()
                 )
-                .doOnError(error ->
-                        log.error(
-                                "PAYMENT: Failed to cancel order from payment.failed. orderId={}",
-                                event.orderId(),
-                                error
-                        )
+                .doOnSuccess(ignored ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
                 )
+                .doOnError(error -> {
+                    kafkaEventMetrics.recordConsumerFailure(topic, error);
+
+                    log.error(
+                            "PAYMENT: Failed to cancel order from payment.failed. orderId={}",
+                            event.orderId(),
+                            error
+                    );
+                })
                 .block();
     }
 
@@ -91,6 +109,7 @@ public class PaymentEventConsumer {
     )
     public void consumePaymentExpired(String payload) {
         PaymentExpiredEvent event = readEvent(payload, PaymentExpiredEvent.class);
+        String topic = kafkaProperties.getTopics().getPaymentExpired();
 
         log.info(
                 "PAYMENT: Received payment.expired for orderId={}, reason={}",
@@ -102,13 +121,18 @@ public class PaymentEventConsumer {
                         event.orderId(),
                         event.reason()
                 )
-                .doOnError(error ->
-                        log.error(
-                                "PAYMENT: Failed to cancel order from payment.expired. orderId={}",
-                                event.orderId(),
-                                error
-                        )
+                .doOnSuccess(ignored ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
                 )
+                .doOnError(error -> {
+                    kafkaEventMetrics.recordConsumerFailure(topic, error);
+
+                    log.error(
+                            "PAYMENT: Failed to cancel order from payment.expired. orderId={}",
+                            event.orderId(),
+                            error
+                    );
+                })
                 .block();
     }
 

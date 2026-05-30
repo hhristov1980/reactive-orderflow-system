@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.order.application.service.PaymentService;
 import com.order.domain.event.OrderConfirmedEvent;
 import com.order.exception.PaymentAlreadyExistsException;
+import com.order.infrastructure.config.properties.OrderKafkaProperties;
+import com.order.infrastructure.observability.KafkaEventMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -18,6 +20,8 @@ public class PaymentOrderConfirmedConsumer {
 
     private final ObjectMapper objectMapper;
     private final PaymentService paymentService;
+    private final OrderKafkaProperties kafkaProperties;
+    private final KafkaEventMetrics kafkaEventMetrics;
 
     @KafkaListener(
             topics = "#{@orderKafkaProperties.topics.orderConfirmed}",
@@ -27,6 +31,7 @@ public class PaymentOrderConfirmedConsumer {
     public void consumeOrderConfirmed(String payload) {
         OrderConfirmedEvent event =
                 readEvent(payload, OrderConfirmedEvent.class);
+        String topic = kafkaProperties.getTopics().getOrderConfirmed();
 
         log.info(
                 "PAYMENT: Received order.confirmed for orderId={}",
@@ -34,19 +39,26 @@ public class PaymentOrderConfirmedConsumer {
         );
 
         paymentService.createFromOrderConfirmed(event)
-                .doOnError(error ->
-                        log.error(
-                                "PAYMENT: Failed to process payment for orderId={}",
-                                event.orderId(),
-                                error
-                        )
+                .doOnSuccess(payment ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
                 )
                 .onErrorResume(PaymentAlreadyExistsException.class, error -> {
+                    kafkaEventMetrics.recordConsumerDuplicate(topic);
+
                     log.info(
                             "PAYMENT: Payment already exists for orderId={}; treating duplicate order.confirmed as processed",
                             event.orderId()
                     );
                     return Mono.empty();
+                })
+                .doOnError(error -> {
+                    kafkaEventMetrics.recordConsumerFailure(topic, error);
+
+                    log.error(
+                            "PAYMENT: Failed to process payment for orderId={}",
+                            event.orderId(),
+                            error
+                    );
                 })
                 .block();
     }

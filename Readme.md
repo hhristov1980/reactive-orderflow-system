@@ -44,6 +44,7 @@ The project is designed to demonstrate:
 * MapStruct
 * Lombok
 * SpringDoc OpenAPI / Swagger UI
+* Spring Boot Actuator / Micrometer
 * Maven
 
 ---
@@ -211,6 +212,28 @@ Or run the main application class from the IDE.
 ```text
 Swagger UI: http://localhost:8081/swagger-ui.html
 Kafka UI:   http://localhost:8080
+Metrics:    http://localhost:8081/actuator/metrics
+```
+
+---
+
+## Metrics
+
+Spring Boot Actuator exposes health, info, and metrics endpoints under `/actuator`.
+
+Useful custom Kafka metrics:
+
+* `orderflow.kafka.consumer.events` counts consumed Kafka records by `topic`, `outcome`, and `exception`.
+  Outcomes are `success`, `duplicate`, and `failure`.
+* `orderflow.kafka.dlt.events` counts records published to dead-letter topics by source topic, DLT topic, and exception.
+* `orderflow.inventory.reservation.failures` counts inventory reservation failures that are converted into `inventory.failed` outbox events.
+
+Examples:
+
+```bash
+curl http://localhost:8081/actuator/metrics/orderflow.kafka.consumer.events
+curl http://localhost:8081/actuator/metrics/orderflow.kafka.dlt.events
+curl http://localhost:8081/actuator/metrics/orderflow.inventory.reservation.failures
 ```
 
 ---
@@ -1214,11 +1237,15 @@ Failure scenario:
 Potential next steps:
 
 * Integration tests with Testcontainers
+* CI/CD pipeline that runs unit tests, integration tests, and build checks
 * Separate modules or microservices per bounded context
 * Authentication and authorization
 * More advanced reporting and time-based analytics
-* Metrics and observability
-* CI/CD pipeline
+* Prometheus/Grafana dashboards for the existing Micrometer metrics
+* Distributed tracing with correlation ids across HTTP, outbox, Kafka, and database work
+* Admin workflow for inspecting, replaying, or parking records from dead-letter topics
+* Stronger test coverage for service-layer transactions, scheduler behavior, and admin APIs
+* Contract tests for Kafka event schemas before extracting bounded contexts into services
 
 ---
 
@@ -1248,5 +1275,8 @@ Implemented:
 * Admin audit and outbox endpoints
 * Reporting dashboard
 * Top products report
+* Spring Boot Actuator metrics endpoint
+* Custom Micrometer metrics for Kafka consumer outcomes, DLT publishing, and inventory reservation failures
+* Automated tests for Kafka consumer retry/idempotency behavior
 * Swagger/OpenAPI support
 * Docker-based local infrastructure

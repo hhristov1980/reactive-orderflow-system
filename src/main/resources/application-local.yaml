@@ -33,6 +33,15 @@ logging:
     org.springframework.kafka: INFO
     org.apache.kafka: WARN
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
 orderflow:
   kafka:
     bootstrap-servers: localhost:9092

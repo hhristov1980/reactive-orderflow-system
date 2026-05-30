@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.order.application.service.OrderService;
 import com.order.domain.event.InventoryFailedEvent;
 import com.order.domain.event.InventoryReservedEvent;
+import com.order.infrastructure.config.properties.OrderKafkaProperties;
+import com.order.infrastructure.observability.KafkaEventMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -17,6 +19,8 @@ public class OrderInventoryConsumer {
 
     private final ObjectMapper objectMapper;
     private final OrderService orderService;
+    private final OrderKafkaProperties kafkaProperties;
+    private final KafkaEventMetrics kafkaEventMetrics;
 
     @KafkaListener(
             topics = "#{@orderKafkaProperties.topics.inventoryReserved}",
@@ -26,6 +30,7 @@ public class OrderInventoryConsumer {
     public void consumeInventoryReserved(String payload) {
         InventoryReservedEvent event =
                 readEvent(payload, InventoryReservedEvent.class);
+        String topic = kafkaProperties.getTopics().getInventoryReserved();
 
         log.info(
                 "ORDER: Received inventory.reserved for orderId={}",
@@ -33,13 +38,18 @@ public class OrderInventoryConsumer {
         );
 
         orderService.confirmFromInventory(event.orderId())
-                .doOnError(error ->
-                        log.error(
-                                "ORDER: Failed to confirm order from inventory.reserved. orderId={}",
-                                event.orderId(),
-                                error
-                        )
+                .doOnSuccess(ignored ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
                 )
+                .doOnError(error -> {
+                    kafkaEventMetrics.recordConsumerFailure(topic, error);
+
+                    log.error(
+                            "ORDER: Failed to confirm order from inventory.reserved. orderId={}",
+                            event.orderId(),
+                            error
+                    );
+                })
                 .block();
     }
 
@@ -51,6 +61,7 @@ public class OrderInventoryConsumer {
     public void consumeInventoryFailed(String payload) {
         InventoryFailedEvent event =
                 readEvent(payload, InventoryFailedEvent.class);
+        String topic = kafkaProperties.getTopics().getInventoryFailed();
 
         log.info(
                 "ORDER: Received inventory.failed for orderId={}, reason={}",
@@ -62,13 +73,18 @@ public class OrderInventoryConsumer {
                         event.orderId(),
                         event.reason()
                 )
-                .doOnError(error ->
-                        log.error(
-                                "ORDER: Failed to mark order as failed from inventory.failed. orderId={}",
-                                event.orderId(),
-                                error
-                        )
+                .doOnSuccess(ignored ->
+                        kafkaEventMetrics.recordConsumerSuccess(topic)
                 )
+                .doOnError(error -> {
+                    kafkaEventMetrics.recordConsumerFailure(topic, error);
+
+                    log.error(
+                            "ORDER: Failed to mark order as failed from inventory.failed. orderId={}",
+                            event.orderId(),
+                            error
+                    );
+                })
                 .block();
     }
 
