@@ -12,7 +12,7 @@ spring:
 
   sql:
     init:
-      mode: ${SPRING_SQL_INIT_MODE:never}
+      mode: ${SPRING_SQL_INIT_MODE:always}
 
   docker:
     compose:

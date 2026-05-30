@@ -48,7 +48,7 @@ public class OrderAuditConsumer {
                 AGGREGATE_TYPE_ORDER,
                 event.orderId(),
                 payload
-        ).subscribe();
+        ).block();
     }
 
     @KafkaListener(
@@ -73,7 +73,7 @@ public class OrderAuditConsumer {
                 AGGREGATE_TYPE_ORDER,
                 event.orderId(),
                 payload
-        ).subscribe();
+        ).block();
     }
 
     @KafkaListener(
@@ -98,7 +98,7 @@ public class OrderAuditConsumer {
                 AGGREGATE_TYPE_ORDER,
                 event.orderId(),
                 payload
-        ).subscribe();
+        ).block();
     }
 
     private <T> T readEvent(

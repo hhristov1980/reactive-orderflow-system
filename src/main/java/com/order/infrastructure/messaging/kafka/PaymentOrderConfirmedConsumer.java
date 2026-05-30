@@ -7,6 +7,7 @@ import com.order.domain.entity.Payment;
 import com.order.domain.enums.PaymentStatus;
 import com.order.domain.event.OrderConfirmedEvent;
 import com.order.domain.event.PaymentExpiredEvent;
+import com.order.exception.PaymentAlreadyExistsException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -45,8 +46,14 @@ public class PaymentOrderConfirmedConsumer {
                                 error
                         )
                 )
-                .onErrorResume(error -> Mono.empty())
-                .subscribe();
+                .onErrorResume(PaymentAlreadyExistsException.class, error -> {
+                    log.info(
+                            "PAYMENT: Payment already exists for orderId={}; treating duplicate order.confirmed as processed",
+                            event.orderId()
+                    );
+                    return Mono.empty();
+                })
+                .block();
     }
 
     private <T> T readEvent(

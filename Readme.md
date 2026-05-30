@@ -16,6 +16,7 @@ The project is designed to demonstrate:
 * Non-blocking database access with R2DBC
 * Event-driven communication with Apache Kafka
 * Reliable event publishing through the Transactional Outbox Pattern
+* Kafka consumer retries with dead-letter topics for failed records
 * Saga-like order lifecycle coordination
 * Concurrent-safe inventory updates with atomic SQL
 * Idempotent inventory reservation handling for duplicate Kafka delivery
@@ -608,6 +609,38 @@ orderflow:
 Different consumer groups allow multiple bounded contexts to react to the same event independently.
 
 For example, both Audit and Inventory consume `order.created`, but they use different consumer groups.
+
+Kafka listeners wait for their reactive database and outbox work to finish before returning to the container. This keeps Kafka retry semantics aligned with the actual processing result: if the database write or outbox save fails, the listener throws and the container retry policy handles the record.
+
+Duplicate business events that are already safely handled by database constraints are treated as processed. For example, duplicate `order.confirmed` events do not create a second payment, and duplicate `payment.completed` events do not create a second shipment.
+
+---
+
+## Kafka Retry And DLT
+
+Kafka consumer failures use a bounded retry policy:
+
+```text
+process record
+   ↓
+retry after 1 second
+   ↓
+retry after 1 second
+   ↓
+retry after 1 second
+   ↓
+publish original record to <topic>.DLT
+```
+
+Invalid payloads are not retried. They are treated as non-retryable and are sent to the matching dead-letter topic immediately.
+
+Dead-letter topics are created for each application topic using the `<topic>.DLT` naming convention, for example:
+
+```text
+order.created.DLT
+inventory.reserved.DLT
+payment.completed.DLT
+```
 
 ---
 

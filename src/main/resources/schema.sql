@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS users (
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
     last_login_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS audit_events (
@@ -114,6 +114,9 @@ CREATE INDEX IF NOT EXISTS idx_outbox_events_status_created_at
 
 CREATE INDEX IF NOT EXISTS idx_outbox_events_status_retry_created_at
     ON outbox_events (status, retry_count, created_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_reservations_order_product
+    ON inventory_reservations (order_id, product_id);
 
 CREATE INDEX IF NOT EXISTS idx_inventory_reservations_order_product_status
     ON inventory_reservations (order_id, product_id, status);

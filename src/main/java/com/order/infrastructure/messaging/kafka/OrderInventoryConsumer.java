@@ -40,7 +40,7 @@ public class OrderInventoryConsumer {
                                 error
                         )
                 )
-                .subscribe();
+                .block();
     }
 
     @KafkaListener(
@@ -69,7 +69,7 @@ public class OrderInventoryConsumer {
                                 error
                         )
                 )
-                .subscribe();
+                .block();
     }
 
     private <T> T readEvent(

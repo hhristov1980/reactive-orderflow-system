@@ -7,6 +7,7 @@ import com.order.application.service.ShipmentService;
 import com.order.domain.event.PaymentCompletedEvent;
 import com.order.domain.event.PaymentExpiredEvent;
 import com.order.domain.event.PaymentFailedEvent;
+import com.order.exception.ShipmentAlreadyExistsException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -44,8 +45,14 @@ public class PaymentEventConsumer {
                                 error
                         )
                 )
-                .onErrorResume(error -> Mono.empty())
-                .subscribe();
+                .onErrorResume(ShipmentAlreadyExistsException.class, error -> {
+                    log.info(
+                            "PAYMENT: Shipment already exists for orderId={}; treating duplicate payment.completed as processed",
+                            event.orderId()
+                    );
+                    return Mono.empty();
+                })
+                .block();
     }
 
     @KafkaListener(
@@ -74,8 +81,7 @@ public class PaymentEventConsumer {
                                 error
                         )
                 )
-                .onErrorResume(error -> Mono.empty())
-                .subscribe();
+                .block();
     }
 
     @KafkaListener(
@@ -103,8 +109,7 @@ public class PaymentEventConsumer {
                                 error
                         )
                 )
-                .onErrorResume(error -> Mono.empty())
-                .subscribe();
+                .block();
     }
 
     private <T> T readEvent(
