@@ -1,4 +1,5 @@
 # OrderFlow
+[![CI/CD](https://github.com/hhristov1980/reactive-orderflow-system/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/hhristov1980/reactive-orderflow-system/actions/workflows/ci-cd.yml)
 
 OrderFlow is a reactive, event-driven order management platform built with Spring WebFlux, R2DBC, PostgreSQL, Kafka, Docker, and MapStruct.
 
@@ -1387,6 +1388,11 @@ These limitations are documented explicitly because the main purpose of the proj
 
 ---
 
+## Build Status
+
+The project is verified by GitHub Actions on every push and pull request to `main`.
+
+The CI workflow starts PostgreSQL and Kafka service containers, disables local Docker Compose integration, runs Maven `clean verify`, uploads test reports, and publishes the application JAR artifact on successful pushes.
 
 ## Future Improvements
 
