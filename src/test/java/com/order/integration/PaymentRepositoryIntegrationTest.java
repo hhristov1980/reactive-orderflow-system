@@ -26,31 +26,7 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @DataR2dbcTest
-@Testcontainers
-class PaymentRepositoryIntegrationTest {
-
-    @Container
-    static final PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:15")
-                    .withDatabaseName("orderflow_test")
-                    .withUsername("postgres")
-                    .withPassword("postgres");
-
-    @DynamicPropertySource
-    static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.docker.compose.enabled", () -> "false");
-
-        registry.add("spring.r2dbc.url", () ->
-                "r2dbc:postgresql://" +
-                        postgres.getHost() + ":" +
-                        postgres.getMappedPort(5432) + "/" +
-                        postgres.getDatabaseName()
-        );
-
-        registry.add("spring.r2dbc.username", postgres::getUsername);
-        registry.add("spring.r2dbc.password", postgres::getPassword);
-        registry.add("spring.sql.init.mode", () -> "always");
-    }
+class PaymentRepositoryIntegrationTest extends AbstractPostgresTestcontainersTest{
 
     @Autowired
     private UserRepository userRepository;
