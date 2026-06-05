@@ -30,6 +30,10 @@ The project is designed to demonstrate:
 * Operational admin APIs
 * Dockerized local infrastructure
 * GitHub Actions CI/CD with PostgreSQL and Kafka service containers
+* PostgreSQL integration tests with Testcontainers
+* R2DBC repository testing against a real PostgreSQL database
+* Database-level validation of atomic inventory reservation logic
+* Shared Testcontainers setup for PostgreSQL integration tests
 * Observability with Actuator, Micrometer, Prometheus, and Grafana
 
 ---
@@ -343,9 +347,57 @@ This CI/CD setup is intentionally lightweight but practical for a portfolio back
 
 ## Testing Strategy
 
-The project includes automated tests focused on Kafka consumer retry and idempotency behavior.
+The project includes automated tests and PostgreSQL integration tests powered by Testcontainers.
 
-Current test coverage demonstrates:
+The integration tests run against a real PostgreSQL container instead of mocks or an in-memory database. This verifies that the R2DBC repositories, SQL schema, enum persistence, timestamps, constraints, and custom SQL behavior work correctly with the same database engine used by the application.
+
+### PostgreSQL Testcontainers Coverage
+
+Current PostgreSQL integration tests cover:
+
+* Product repository persistence
+* User repository persistence
+* Order repository persistence
+* Order item repository persistence
+* Inventory repository persistence
+* Atomic inventory reservation with conditional SQL updates
+* Outbox event persistence
+* Audit event persistence
+* Payment repository persistence
+* Shipment repository persistence
+
+The most important database-level test is the atomic inventory reservation test. It verifies both successful and failed stock reservation scenarios:
+
+```text
+available = 10, reserved = 0
+reserve 3
+rowsUpdated = 1
+available = 7, reserved = 3
+```
+
+```text
+available = 2, reserved = 0
+reserve 5
+rowsUpdated = 0
+available = 2, reserved = 0
+```
+
+This confirms that inventory reservation is protected at the database level by a conditional PostgreSQL update, preventing overselling under concurrent order creation.
+
+### Shared Testcontainers Setup
+
+Integration tests share a common PostgreSQL Testcontainers base class that provides:
+
+* Disposable PostgreSQL test database
+* Dynamic R2DBC connection properties
+* Disabled Docker Compose integration during tests
+* Automatic SQL schema initialization
+
+### Kafka Consumer Tests
+
+The project also includes automated tests focused on Kafka consumer retry and idempotency behavior.
+
+Current Kafka-related test coverage demonstrates:
 
 * Successful Kafka consumer processing
 * Duplicate event handling
@@ -360,14 +412,6 @@ The CI pipeline runs the test suite with:
 ```
 
 The GitHub Actions workflow starts PostgreSQL and Kafka service containers before running Maven verification, so tests can be executed against infrastructure that is close to the local development setup.
-
-Planned testing improvements:
-
-* Testcontainers-based integration tests for PostgreSQL and Kafka
-* Service-layer transaction tests for order, inventory, payment, and shipping flows
-* Scheduler tests for unpaid payment expiration and outbox publishing
-* Repository integration tests for custom SQL reporting queries
-* Contract tests for Kafka event schemas before extracting bounded contexts into separate services
 
 ---
 
@@ -1382,7 +1426,6 @@ Current intentional limitations:
 * Kafka topics use one partition and one replica in local development.
 * The current CI/CD workflow builds, tests, and publishes a JAR artifact, but it does not deploy to a live hosting environment.
 * Distributed tracing and correlation IDs across HTTP, Kafka, outbox, and database operations are planned but not yet implemented.
-* Testcontainers-based full integration testing is planned as a next step.
 
 These limitations are documented explicitly because the main purpose of the project is to demonstrate backend architecture, reliability patterns, reactive programming, event-driven workflows, and operational visibility.
 
@@ -1398,13 +1441,14 @@ The CI workflow starts PostgreSQL and Kafka service containers, disables local D
 
 Potential next steps:
 
-* Integration tests with Testcontainers
+* Kafka integration tests with Testcontainers
 * Separate modules or microservices per bounded context
 * Authentication and authorization with Spring Security
 * More advanced reporting and time-based analytics
 * Distributed tracing with correlation ids across HTTP, outbox, Kafka, and database work
 * Admin workflow for inspecting, replaying, or parking records from dead-letter topics
-* Stronger test coverage for service-layer transactions, scheduler behavior, and admin APIs
+* Stronger service-layer and scheduler test coverage
+* Repository integration tests for custom SQL reporting queries
 * Contract tests for Kafka event schemas before extracting bounded contexts into services
 
 ---
@@ -1440,6 +1484,10 @@ Implemented:
 * Prometheus scrape configuration
 * Grafana datasource provisioning and OrderFlow reliability dashboard
 * GitHub Actions CI/CD workflow for Maven verification and JAR artifact publishing
+* PostgreSQL integration tests with Testcontainers
+* Shared PostgreSQL Testcontainers base setup for integration tests
+* Repository integration tests for products, users, orders, order items, inventory, outbox events, audit events, payments, and shipments
+* Atomic inventory reservation integration test with `rowsUpdated` verification
 * Automated tests for Kafka consumer retry/idempotency behavior
 * Swagger/OpenAPI support
 * Docker-based local infrastructure
