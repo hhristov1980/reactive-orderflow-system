@@ -1,7 +1,5 @@
 package com.order.domain.enums;
 
-import java.util.Arrays;
-
 public enum InventorySortField {
 
     ID("id"),
