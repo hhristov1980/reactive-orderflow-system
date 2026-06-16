@@ -347,71 +347,94 @@ This CI/CD setup is intentionally lightweight but practical for a portfolio back
 
 ## Testing Strategy
 
-The project includes automated tests and PostgreSQL integration tests powered by Testcontainers.
+The project includes a layered automated testing strategy designed to validate persistence, business workflows, transactional behavior, scheduled jobs, and event-driven reliability.
 
-The integration tests run against a real PostgreSQL container instead of mocks or an in-memory database. This verifies that the R2DBC repositories, SQL schema, enum persistence, timestamps, constraints, and custom SQL behavior work correctly with the same database engine used by the application.
-
-### PostgreSQL Testcontainers Coverage
-
-Current PostgreSQL integration tests cover:
-
-* Product repository persistence
-* User repository persistence
-* Order repository persistence
-* Order item repository persistence
-* Inventory repository persistence
-* Atomic inventory reservation with conditional SQL updates
-* Outbox event persistence
-* Audit event persistence
-* Payment repository persistence
-* Shipment repository persistence
-
-The most important database-level test is the atomic inventory reservation test. It verifies both successful and failed stock reservation scenarios:
-
-```text
-available = 10, reserved = 0
-reserve 3
-rowsUpdated = 1
-available = 7, reserved = 3
-```
-
-```text
-available = 2, reserved = 0
-reserve 5
-rowsUpdated = 0
-available = 2, reserved = 0
-```
-
-This confirms that inventory reservation is protected at the database level by a conditional PostgreSQL update, preventing overselling under concurrent order creation.
-
-### Shared Testcontainers Setup
-
-Integration tests share a common PostgreSQL Testcontainers base class that provides:
-
-* Disposable PostgreSQL test database
-* Dynamic R2DBC connection properties
-* Disabled Docker Compose integration during tests
-* Automatic SQL schema initialization
-
-### Kafka Consumer Tests
-
-The project also includes automated tests focused on Kafka consumer retry and idempotency behavior.
-
-Current Kafka-related test coverage demonstrates:
-
-* Successful Kafka consumer processing
-* Duplicate event handling
-* Retry behavior for failed records
-* Dead-letter topic handling for records that cannot be processed
-* Idempotent handling of already-processed business events
-
-The CI pipeline runs the test suite with:
+The test suite is executed in CI with:
 
 ```bash
 ./mvnw --batch-mode clean verify
 ```
 
-The GitHub Actions workflow starts PostgreSQL and Kafka service containers before running Maven verification, so tests can be executed against infrastructure that is close to the local development setup.
+### Repository and Database Integration Tests
+
+PostgreSQL integration tests use Testcontainers and run against a real PostgreSQL database instead of mocks or an in-memory replacement.
+
+Covered areas include:
+
+* Reactive repository persistence for products, users, orders, order items, inventory, payments, shipments, audit events, and outbox events
+* Custom repository queries using `R2dbcEntityTemplate`
+* Pagination and sorting behavior
+* Atomic inventory stock mutation queries
+* Query methods such as `findByOrderId`, `existsByOrderId`, `findByProductId`, and status-based filtering
+* Reporting queries and SQL aggregations, including revenue, inventory, payment, outbox, and top-product reports
+
+### Service-Layer Integration Tests
+
+Core business services are tested with a real PostgreSQL database and mocked external publishing boundaries where appropriate.
+
+Covered service flows include:
+
+* Order creation with item persistence, total calculation, validation, and outbox event creation
+* Order confirmation and cancellation state transitions
+* Event-driven order updates from inventory and payment outcomes
+* Inventory reservation and release flows
+* Idempotent handling of duplicate inventory reservation and release events
+* Payment creation, completion, failure, and overdue expiration
+* Transactional rollback when outbox persistence fails
+* Real database state verification after each business operation
+
+### Transactional Outbox Tests
+
+The project uses the Transactional Outbox Pattern to reliably persist domain events before publishing them to Kafka.
+
+Outbox tests verify that:
+
+* Events are saved with `PENDING` status
+* Event metadata is persisted correctly
+* Payloads are serialized as JSON
+* Retry metadata is initialized and updated correctly
+* Publishable events are selected according to status and retry limits
+* Published and failed events are handled consistently
+
+### Scheduler Tests
+
+Scheduler tests focus on orchestration logic rather than duplicating service-layer behavior.
+
+Covered schedulers include:
+
+* Unpaid payment expiration scheduler
+* Outbox publisher scheduler
+
+The tests verify that schedulers:
+
+* Do not run when disabled
+* Use configured properties such as expiration days and max retry count
+* Invoke the correct service methods when enabled
+* Subscribe to reactive flows
+* Handle service errors without throwing exceptions to the scheduler caller
+
+### Kafka and Reliability Tests
+
+Kafka-related reliability is currently covered with focused consumer tests, service-layer integration tests, and scheduler tests.
+
+The existing Kafka consumer tests verify:
+
+* Successful consumer processing for important business events
+* Duplicate business event handling, such as duplicate `order.confirmed` and `payment.completed` messages
+* Propagation of unexpected failures so Kafka retry policies can handle transient processing errors
+* Conversion of inventory reservation business failures into `INVENTORY_FAILED` outbox events
+* Consumer outcome metrics for `success`, `duplicate`, and `failure`
+* Inventory reservation failure metrics
+
+The service-layer integration tests complement the consumer tests by verifying idempotent business behavior, transactional rollback on outbox failures, and state consistency in PostgreSQL.
+
+Kafka Testcontainers-based end-to-end messaging tests are planned as a future enhancement. Those tests will validate actual broker communication, topic publishing, consumer retry behavior, and dead-letter topic handling with a real Kafka container.
+
+### CI Test Environment
+
+The GitHub Actions workflow starts PostgreSQL and Kafka service containers before running Maven verification. Spring Boot Docker Compose integration is disabled in CI, and the application is pointed directly to the GitHub Actions service containers.
+
+This keeps the CI setup lightweight while still validating the application against infrastructure that is close to the local development environment.
 
 ---
 
@@ -1441,15 +1464,15 @@ The CI workflow starts PostgreSQL and Kafka service containers, disables local D
 
 Potential next steps:
 
-* Kafka integration tests with Testcontainers
+* Kafka integration tests with Testcontainers for real broker-based event publishing and consuming
+* End-to-end verification of Kafka retry and dead-letter topic behavior
+* Contract tests for Kafka event schemas before extracting bounded contexts into services
 * Separate modules or microservices per bounded context
 * Authentication and authorization with Spring Security
 * More advanced reporting and time-based analytics
-* Distributed tracing with correlation ids across HTTP, outbox, Kafka, and database work
+* Distributed tracing with correlation IDs across HTTP, outbox, Kafka, and database work
 * Admin workflow for inspecting, replaying, or parking records from dead-letter topics
-* Stronger service-layer and scheduler test coverage
-* Repository integration tests for custom SQL reporting queries
-* Contract tests for Kafka event schemas before extracting bounded contexts into services
+* Docker image publishing and deployment to a real hosting environment
 
 ---
 
@@ -1488,6 +1511,6 @@ Implemented:
 * Shared PostgreSQL Testcontainers base setup for integration tests
 * Repository integration tests for products, users, orders, order items, inventory, outbox events, audit events, payments, and shipments
 * Atomic inventory reservation integration test with `rowsUpdated` verification
-* Automated tests for Kafka consumer retry/idempotency behavior
+* Focused Kafka consumer tests for successful processing, duplicate handling, failure propagation, and consumer metrics
 * Swagger/OpenAPI support
 * Docker-based local infrastructure
