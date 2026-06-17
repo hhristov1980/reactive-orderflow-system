@@ -777,7 +777,7 @@ The system uses reactive composition to process order items:
 
 ```java
 Flux.fromIterable(event.items())
-    .flatMap(this::reserveSingleItem)
+        .flatMap(this::reserveSingleItem)
     .collectList();
 ```
 
@@ -970,12 +970,12 @@ The dashboard combines independent report queries in parallel using `Mono.zip(..
 
 ```java
 Mono.zip(
-    ordersMono,
-    revenueMono,
-    inventoryMono,
-    paymentsMono,
-    topProductsMono
-)
+        ordersMono,
+        revenueMono,
+        inventoryMono,
+        paymentsMono,
+        topProductsMono
+        )
 ```
 
 This demonstrates one of the practical advantages of reactive programming: independent non-blocking operations can be composed and resolved together.
@@ -1205,7 +1205,7 @@ Inventory reservation processes order items reactively:
 
 ```java
 Flux.fromIterable(event.items())
-    .flatMap(this::reserveSingleItem)
+        .flatMap(this::reserveSingleItem)
     .collectList();
 ```
 
@@ -1220,7 +1220,7 @@ return Mono.zip(
         inventoryMono,
         paymentsMono,
         topProductsMono
-)
+        )
 .map(tuple -> new DashboardReportResponse(...));
 ```
 
@@ -1236,7 +1236,7 @@ return Mono.zip(
         inventoryMono,
         topProductsMono,
         outboxMono
-)
+        )
 .map(tuple -> new AdminDashboardResponse(...));
 ```
 
@@ -1510,7 +1510,9 @@ Implemented:
 * PostgreSQL integration tests with Testcontainers
 * Shared PostgreSQL Testcontainers base setup for integration tests
 * Repository integration tests for products, users, orders, order items, inventory, outbox events, audit events, payments, and shipments
-* Atomic inventory reservation integration test with `rowsUpdated` verification
+* Inventory stock mutation integration tests for reserve and release operations with `rowsUpdated` verification
 * Focused Kafka consumer tests for successful processing, duplicate handling, failure propagation, and consumer metrics
+* Service-layer integration tests for order, inventory, payment, and outbox workflows
+* Scheduler tests for unpaid payment expiration and outbox publishing
 * Swagger/OpenAPI support
 * Docker-based local infrastructure

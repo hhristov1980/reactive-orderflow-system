@@ -90,7 +90,7 @@ public class OutboxServiceImpl implements OutboxService {
                                 event.getPayload()
                         )
                 )
-                .then(markAsPublished(event))
+                .then(Mono.defer(() -> markAsPublished(event)))
                 .onErrorResume(error -> markAsFailed(event, error));
     }
 
@@ -127,6 +127,7 @@ public class OutboxServiceImpl implements OutboxService {
         event.setStatus(OutboxStatus.FAILED);
         event.setRetryCount(currentRetryCount + 1);
         event.setLastError(error.getMessage());
+        event.setPublishedAt(null);
         event.setUpdatedAt(now);
 
         return repository.save(event)
