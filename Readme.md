@@ -503,6 +503,8 @@ Covered Kafka integration scenarios include:
 * `order.created` consumed by the real `InventoryOrderEventConsumer`, reserving inventory and creating an `INVENTORY_RESERVED` outbox event
 * `order.created` with insufficient stock consumed by the real `InventoryOrderEventConsumer`, creating an `INVENTORY_FAILED` outbox event
 * `order.cancelled` consumed by the real `InventoryOrderEventConsumer`, releasing inventory and creating an `INVENTORY_RELEASED` outbox event
+* Invalid Kafka payload is routed to the matching dead-letter topic without retry
+* Retryable technical consumer failure is retried and then routed to the matching dead-letter topic
 
 The service-layer integration tests complement the Kafka tests by verifying idempotent business behavior, transactional rollback on outbox failures, and state consistency in PostgreSQL.
 
@@ -1631,6 +1633,7 @@ Implemented:
 * Kafka Testcontainers listener test for `order.confirmed -> payment created`
 * Kafka Testcontainers listener tests for `payment.completed`, `payment.failed`, and `payment.expired` flows
 * Kafka Testcontainers listener tests for `order.created -> inventory reserved`, `order.created -> inventory failed`, and `order.cancelled -> inventory released`
+* Kafka DLT integration tests for invalid payloads and retryable technical failures
 * Test suite stabilization through test-specific R2DBC pool settings and disabled JUnit parallel execution
 * Swagger/OpenAPI support
 * Docker-based local infrastructure
