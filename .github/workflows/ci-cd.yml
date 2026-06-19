@@ -84,7 +84,7 @@ jobs:
           LOGGING_LEVEL_R2DBC: INFO
           LOGGING_LEVEL_KAFKA: WARN
           LOGGING_LEVEL_APACHE_KAFKA: WARN
-        run: ./mvnw --batch-mode clean verify
+        run: ./mvnw --batch-mode clean verify -Dspring.test.context.cache.maxSize=4
 
       - name: Upload Test Reports
         if: always()

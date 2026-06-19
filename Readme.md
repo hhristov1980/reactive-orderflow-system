@@ -1,9 +1,10 @@
 # OrderFlow
+
 [![CI/CD](https://github.com/hhristov1980/reactive-orderflow-system/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/hhristov1980/reactive-orderflow-system/actions/workflows/ci-cd.yml)
 
-OrderFlow is a reactive, event-driven order management platform built with Spring WebFlux, R2DBC, PostgreSQL, Kafka, Docker, and MapStruct.
+OrderFlow is a reactive, event-driven order management platform built with Spring WebFlux, R2DBC, PostgreSQL, Kafka, Docker, MapStruct, Prometheus, Grafana, and GitHub Actions.
 
-It demonstrates a realistic e-commerce backend flow: product catalog management, users, order creation, inventory reservation, payment processing, shipping, audit logging, scheduled unpaid payment expiration, reporting, and operational admin views.
+It demonstrates a realistic e-commerce backend flow: product catalog management, users, order creation, inventory reservation, payment processing, shipping, audit logging, scheduled unpaid payment expiration, reporting, observability, and operational admin views.
 
 The project is currently implemented as a modular monolith with clear bounded contexts, making it suitable for later extraction into separate microservices.
 
@@ -20,21 +21,26 @@ The project is designed to demonstrate:
 * Kafka consumer retries with dead-letter topics for failed records
 * Saga-like order lifecycle coordination
 * Concurrent-safe inventory updates with atomic SQL
-* Idempotent inventory reservation handling for duplicate Kafka delivery
-* Reactive transactional operations
+* Idempotent inventory reservation and release handling for duplicate Kafka delivery
+* Reactive transactional operations with `TransactionalOperator`
 * Parallel report aggregation with `Mono.zip(...)`
-* Scheduled jobs for unpaid payment expiration
+* Scheduled jobs for unpaid payment expiration and outbox publishing
 * Clean layered architecture
 * DTO mapping with MapStruct
 * Centralized validation and exception handling
 * Operational admin APIs
 * Dockerized local infrastructure
+* Observability with Actuator, Micrometer, Prometheus, and Grafana
 * GitHub Actions CI/CD with PostgreSQL and Kafka service containers
 * PostgreSQL integration tests with Testcontainers
+* Kafka Testcontainers integration tests with a real broker
 * R2DBC repository testing against a real PostgreSQL database
-* Database-level validation of atomic inventory reservation logic
+* Service-layer integration tests against PostgreSQL
+* Focused Kafka consumer tests for success, duplicate handling, failure propagation, and metrics
+* Scheduler tests for operational background jobs
+* Database-level validation of atomic inventory reservation and release logic
 * Shared Testcontainers setup for PostgreSQL integration tests
-* Observability with Actuator, Micrometer, Prometheus, and Grafana
+* Test suite stabilization with R2DBC pool limits and disabled JUnit parallel execution
 
 ---
 
@@ -55,6 +61,10 @@ The project is designed to demonstrate:
 * SpringDoc OpenAPI / Swagger UI
 * Spring Boot Actuator / Micrometer
 * Maven
+* JUnit 5
+* Mockito
+* Testcontainers
+* GitHub Actions
 
 ---
 
@@ -114,6 +124,7 @@ com.order
 │   │   └── properties
 │   ├── messaging
 │   │   └── kafka
+│   ├── observability
 │   ├── repository
 │   │   ├── custom
 │   │   └── report
@@ -179,7 +190,7 @@ Domain layer
   Entities, enums, events, request/response DTOs
 
 Infrastructure layer
-  R2DBC repositories, custom SQL repositories, Kafka consumers, outbox publisher, schedulers, configuration
+  R2DBC repositories, custom SQL repositories, Kafka consumers, outbox publisher, schedulers, metrics, configuration
 ```
 
 ---
@@ -204,7 +215,7 @@ Inventory reservation uses conditional PostgreSQL updates instead of read-check-
 
 ### Idempotent Event Handling
 
-Kafka consumers are designed to tolerate duplicate delivery. Inventory uses a reservation ledger with uniqueness constraints, and duplicate business events such as repeated `order.confirmed` or `payment.completed` messages are treated as already processed instead of creating duplicate payments or shipments.
+Kafka consumers are designed to tolerate duplicate delivery. Inventory uses a reservation ledger with uniqueness constraints, and duplicate business events such as repeated `order.confirmed`, `order.cancelled`, or `payment.completed` messages are treated as already processed instead of creating duplicate payments, shipments, or stock movements.
 
 ### Reactive Composition Where It Adds Value
 
@@ -245,7 +256,7 @@ grafana
 From the project root:
 
 ```bash
-mvn spring-boot:run
+./mvnw spring-boot:run
 ```
 
 Or run the main application class from the IDE.
@@ -269,7 +280,7 @@ Password: admin
 
 ---
 
-## Metrics
+## Observability And Metrics
 
 Spring Boot Actuator exposes health, info, metrics, and Prometheus endpoints under `/actuator`.
 
@@ -278,7 +289,7 @@ Useful custom Kafka metrics:
 * `orderflow.kafka.consumer.events` counts consumed Kafka records by `topic`, `outcome`, and `exception`.
   Outcomes are `success`, `duplicate`, and `failure`.
 * `orderflow.kafka.dlt.events` counts records published to dead-letter topics by source topic, DLT topic, and exception.
-* `orderflow.inventory.reservation.failures` counts inventory reservation failures that are converted into `inventory.failed` outbox events.
+* `orderflow.inventory.reservation.failures` counts inventory reservation failures that are converted into `INVENTORY_FAILED` outbox events.
 
 Examples:
 
@@ -289,18 +300,28 @@ curl http://localhost:8081/actuator/metrics/orderflow.inventory.reservation.fail
 curl http://localhost:8081/actuator/prometheus
 ```
 
-Prometheus is configured in `config/prometheus/prometheus.yml` to scrape the Spring Boot app at `host.docker.internal:8081/actuator/prometheus`.
+Prometheus is configured in:
+
+```text
+config/prometheus/prometheus.yml
+```
 
 Grafana is provisioned automatically with:
 
-* Prometheus datasource: `config/grafana/provisioning/datasources/prometheus.yml`
-* OrderFlow reliability dashboard: `config/grafana/dashboards/orderflow-observability.json`
+```text
+config/grafana/provisioning/datasources/prometheus.yml
+config/grafana/dashboards/orderflow-observability.json
+```
 
 ---
 
 ## CI/CD
 
-GitHub Actions workflow: `.github/workflows/ci-cd.yml`
+GitHub Actions workflow:
+
+```text
+.github/workflows/ci-cd.yml
+```
 
 The pipeline runs on:
 
@@ -321,7 +342,7 @@ Start PostgreSQL service container
    ↓
 Start Kafka service container
    ↓
-Run ./mvnw --batch-mode clean verify
+Run ./mvnw --batch-mode clean verify -Dspring.test.context.cache.maxSize=4
    ↓
 Upload test reports
    ↓
@@ -335,9 +356,18 @@ SPRING_DOCKER_COMPOSE_ENABLED=false
 SPRING_R2DBC_URL=r2dbc:postgresql://localhost:5433/orderflow
 SPRING_R2DBC_USERNAME=postgres
 SPRING_R2DBC_PASSWORD=postgres
+SPRING_SQL_INIT_MODE=always
 SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 ORDERFLOW_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 ```
+
+The Maven command also limits the Spring TestContext cache size:
+
+```bash
+./mvnw --batch-mode clean verify -Dspring.test.context.cache.maxSize=4
+```
+
+This helps prevent PostgreSQL connection exhaustion in the full integration-test suite when multiple Spring contexts and R2DBC pools are created.
 
 The current delivery step publishes the built JAR as a GitHub Actions artifact. A real deployment target can be added later when the hosting environment is chosen.
 
@@ -349,11 +379,43 @@ This CI/CD setup is intentionally lightweight but practical for a portfolio back
 
 The project includes a layered automated testing strategy designed to validate persistence, business workflows, transactional behavior, scheduled jobs, and event-driven reliability.
 
-The test suite is executed in CI with:
+The full suite can be executed locally with:
 
 ```bash
-./mvnw --batch-mode clean verify
+./mvnw clean test
 ```
+
+The CI workflow executes:
+
+```bash
+./mvnw --batch-mode clean verify -Dspring.test.context.cache.maxSize=4
+```
+
+### Test Runtime Settings
+
+The test suite includes test-specific configuration under `src/test/resources`.
+
+Recommended R2DBC pool settings for test execution:
+
+```yaml
+spring:
+  r2dbc:
+    pool:
+      enabled: true
+      initial-size: 0
+      max-size: 2
+      max-idle-time: 30s
+      max-acquire-time: 5s
+      max-create-connection-time: 5s
+```
+
+JUnit parallel execution is disabled for stability:
+
+```properties
+junit.jupiter.execution.parallel.enabled=false
+```
+
+These settings keep the test suite stable when repository tests, service-layer integration tests, scheduler tests, Kafka consumer tests, and Kafka Testcontainers tests are executed together.
 
 ### Repository and Database Integration Tests
 
@@ -413,11 +475,11 @@ The tests verify that schedulers:
 * Subscribe to reactive flows
 * Handle service errors without throwing exceptions to the scheduler caller
 
-### Kafka and Reliability Tests
+### Focused Kafka Consumer Tests
 
-Kafka-related reliability is currently covered with focused consumer tests, service-layer integration tests, and scheduler tests.
+Focused Kafka consumer tests verify consumer behavior without starting a real Kafka broker.
 
-The existing Kafka consumer tests verify:
+Covered areas include:
 
 * Successful consumer processing for important business events
 * Duplicate business event handling, such as duplicate `order.confirmed` and `payment.completed` messages
@@ -426,9 +488,23 @@ The existing Kafka consumer tests verify:
 * Consumer outcome metrics for `success`, `duplicate`, and `failure`
 * Inventory reservation failure metrics
 
-The service-layer integration tests complement the consumer tests by verifying idempotent business behavior, transactional rollback on outbox failures, and state consistency in PostgreSQL.
+### Kafka Testcontainers Integration Tests
 
-Kafka Testcontainers-based end-to-end messaging tests are planned as a future enhancement. Those tests will validate actual broker communication, topic publishing, consumer retry behavior, and dead-letter topic handling with a real Kafka container.
+Kafka Testcontainers tests validate selected flows against a real Kafka broker instead of mocking the messaging layer.
+
+Covered Kafka integration scenarios include:
+
+* Producer and consumer smoke test against a real Kafka container
+* Transactional outbox publishing to a real Kafka topic
+* `order.confirmed` consumed by the real `PaymentOrderConfirmedConsumer`, creating a pending payment and a `PAYMENT_CREATED` outbox event
+* `payment.completed` consumed by the real `PaymentEventConsumer`, creating a shipment and a `SHIPMENT_CREATED` outbox event
+* `payment.failed` consumed by the real `PaymentEventConsumer`, cancelling the order and creating an `ORDER_CANCELLED` outbox event
+* `payment.expired` consumed by the real `PaymentEventConsumer`, cancelling the order and creating an `ORDER_CANCELLED` outbox event
+* `order.created` consumed by the real `InventoryOrderEventConsumer`, reserving inventory and creating an `INVENTORY_RESERVED` outbox event
+* `order.created` with insufficient stock consumed by the real `InventoryOrderEventConsumer`, creating an `INVENTORY_FAILED` outbox event
+* `order.cancelled` consumed by the real `InventoryOrderEventConsumer`, releasing inventory and creating an `INVENTORY_RELEASED` outbox event
+
+The service-layer integration tests complement the Kafka tests by verifying idempotent business behavior, transactional rollback on outbox failures, and state consistency in PostgreSQL.
 
 ### CI Test Environment
 
@@ -750,11 +826,31 @@ InventoryOrderEventConsumer
    ↓
 insert inventory_reservations row
    ↓
-reserve inventory items
+reserve inventory using atomic SQL update
    ↓
-INVENTORY_RESERVED or INVENTORY_FAILED outbox event
+INVENTORY_RESERVED outbox event
    ↓
-inventory.reserved or inventory.failed
+inventory.reserved
+```
+
+### Reservation Failure
+
+```text
+order.created
+   ↓
+InventoryOrderEventConsumer
+   ↓
+insert reservation attempt
+   ↓
+reserve inventory using atomic SQL update
+   ↓
+updated rows = 0
+   ↓
+InventoryReservationException
+   ↓
+INVENTORY_FAILED outbox event
+   ↓
+inventory.failed
 ```
 
 ### Release
@@ -777,7 +873,7 @@ The system uses reactive composition to process order items:
 
 ```java
 Flux.fromIterable(event.items())
-        .flatMap(this::reserveSingleItem)
+    .flatMap(this::reserveSingleItem)
     .collectList();
 ```
 
@@ -839,7 +935,7 @@ For example, both Audit and Inventory consume `order.created`, but they use diff
 
 Kafka listeners wait for their reactive database and outbox work to finish before returning to the container. This keeps Kafka retry semantics aligned with the actual processing result: if the database write or outbox save fails, the listener throws and the container retry policy handles the record.
 
-Duplicate business events that are already safely handled by database constraints are treated as processed. For example, duplicate `order.confirmed` events do not create a second payment, and duplicate `payment.completed` events do not create a second shipment.
+Duplicate business events that are already safely handled by database constraints are treated as processed. For example, duplicate `order.confirmed` events do not create a second payment, duplicate `payment.completed` events do not create a second shipment, and duplicate `order.cancelled` events do not release stock twice.
 
 ---
 
@@ -970,12 +1066,12 @@ The dashboard combines independent report queries in parallel using `Mono.zip(..
 
 ```java
 Mono.zip(
-        ordersMono,
-        revenueMono,
-        inventoryMono,
-        paymentsMono,
-        topProductsMono
-        )
+    ordersMono,
+    revenueMono,
+    inventoryMono,
+    paymentsMono,
+    topProductsMono
+)
 ```
 
 This demonstrates one of the practical advantages of reactive programming: independent non-blocking operations can be composed and resolved together.
@@ -1205,7 +1301,7 @@ Inventory reservation processes order items reactively:
 
 ```java
 Flux.fromIterable(event.items())
-        .flatMap(this::reserveSingleItem)
+    .flatMap(this::reserveSingleItem)
     .collectList();
 ```
 
@@ -1220,7 +1316,7 @@ return Mono.zip(
         inventoryMono,
         paymentsMono,
         topProductsMono
-        )
+)
 .map(tuple -> new DashboardReportResponse(...));
 ```
 
@@ -1236,7 +1332,7 @@ return Mono.zip(
         inventoryMono,
         topProductsMono,
         outboxMono
-        )
+)
 .map(tuple -> new AdminDashboardResponse(...));
 ```
 
@@ -1292,7 +1388,7 @@ Audit events can be inspected through admin endpoints.
 
 The project avoids hardcoded infrastructure settings.
 
-Kafka topics, consumer groups, topic settings, report limits, scheduler settings, and other configurable values are defined in `application.yaml` and loaded through `@ConfigurationProperties` classes.
+Kafka topics, consumer groups, topic settings, report limits, scheduler settings, test runtime settings, and other configurable values are defined in YAML configuration and loaded through `@ConfigurationProperties` classes.
 
 Examples:
 
@@ -1394,9 +1490,13 @@ This project demonstrates several backend engineering concepts that are useful i
 * Reporting read models with custom SQL
 * Parallel dashboard aggregation with `Mono.zip(...)`
 * Operational admin APIs for outbox and audit inspection
-* Centralized configuration through `application.yaml`
+* Observability with Prometheus and Grafana
+* Centralized configuration through YAML
 * Modular monolith structure ready for microservice extraction
 * GitHub Actions CI/CD with PostgreSQL and Kafka service containers
+* PostgreSQL integration tests with Testcontainers
+* Kafka Testcontainers coverage for real broker publishing and selected listener flows
+* Full test-suite stabilization for larger integration-test runs
 
 ---
 
@@ -1435,6 +1535,18 @@ Failure scenario:
 9. Check outbox events and confirm all related events are PUBLISHED
 ```
 
+Inventory failure scenario:
+
+```text
+1. Create product inventory with low stock
+2. Create an order requesting more units than available
+3. Inventory reservation fails
+4. INVENTORY_FAILED is saved to the outbox
+5. inventory.failed is published
+6. Order moves to FAILED
+7. Inspect outbox and audit data
+```
+
 ---
 
 ## Current Limitations And Production Notes
@@ -1450,22 +1562,23 @@ Current intentional limitations:
 * The current CI/CD workflow builds, tests, and publishes a JAR artifact, but it does not deploy to a live hosting environment.
 * Distributed tracing and correlation IDs across HTTP, Kafka, outbox, and database operations are planned but not yet implemented.
 
-These limitations are documented explicitly because the main purpose of the project is to demonstrate backend architecture, reliability patterns, reactive programming, event-driven workflows, and operational visibility.
+These limitations are documented explicitly because the main purpose of the project is to demonstrate backend architecture, reliability patterns, reactive programming, event-driven workflows, testing discipline, and operational visibility.
 
 ---
 
 ## Build Status
 
-The project is verified by GitHub Actions on every push and pull request to `main`.
+The project is verified by GitHub Actions on every push and pull request to `main` and `master`.
 
-The CI workflow starts PostgreSQL and Kafka service containers, disables local Docker Compose integration, runs Maven `clean verify`, uploads test reports, and publishes the application JAR artifact on successful pushes.
+The CI workflow starts PostgreSQL and Kafka service containers, disables local Docker Compose integration, runs Maven `clean verify` with a limited Spring TestContext cache, uploads test reports, and publishes the application JAR artifact on successful pushes.
+
+---
 
 ## Future Improvements
 
 Potential next steps:
 
-* Kafka integration tests with Testcontainers for real broker-based event publishing and consuming
-* End-to-end verification of Kafka retry and dead-letter topic behavior
+* End-to-end verification of Kafka retry and dead-letter topic behavior with real Kafka
 * Contract tests for Kafka event schemas before extracting bounded contexts into services
 * Separate modules or microservices per bounded context
 * Authentication and authorization with Spring Security
@@ -1477,7 +1590,6 @@ Potential next steps:
 ---
 
 ## Current Status
-
 
 Implemented:
 
@@ -1511,8 +1623,14 @@ Implemented:
 * Shared PostgreSQL Testcontainers base setup for integration tests
 * Repository integration tests for products, users, orders, order items, inventory, outbox events, audit events, payments, and shipments
 * Inventory stock mutation integration tests for reserve and release operations with `rowsUpdated` verification
-* Focused Kafka consumer tests for successful processing, duplicate handling, failure propagation, and consumer metrics
 * Service-layer integration tests for order, inventory, payment, and outbox workflows
 * Scheduler tests for unpaid payment expiration and outbox publishing
+* Focused Kafka consumer tests for successful processing, duplicate handling, failure propagation, and consumer metrics
+* Kafka Testcontainers smoke test for real broker producer/consumer communication
+* Kafka Testcontainers outbox publishing test with real Kafka topic verification
+* Kafka Testcontainers listener test for `order.confirmed -> payment created`
+* Kafka Testcontainers listener tests for `payment.completed`, `payment.failed`, and `payment.expired` flows
+* Kafka Testcontainers listener tests for `order.created -> inventory reserved`, `order.created -> inventory failed`, and `order.cancelled -> inventory released`
+* Test suite stabilization through test-specific R2DBC pool settings and disabled JUnit parallel execution
 * Swagger/OpenAPI support
 * Docker-based local infrastructure
