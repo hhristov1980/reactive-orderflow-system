@@ -873,7 +873,7 @@ The system uses reactive composition to process order items:
 
 ```java
 Flux.fromIterable(event.items())
-    .flatMap(this::reserveSingleItem)
+        .flatMap(this::reserveSingleItem)
     .collectList();
 ```
 
@@ -1066,12 +1066,12 @@ The dashboard combines independent report queries in parallel using `Mono.zip(..
 
 ```java
 Mono.zip(
-    ordersMono,
-    revenueMono,
-    inventoryMono,
-    paymentsMono,
-    topProductsMono
-)
+        ordersMono,
+        revenueMono,
+        inventoryMono,
+        paymentsMono,
+        topProductsMono
+        )
 ```
 
 This demonstrates one of the practical advantages of reactive programming: independent non-blocking operations can be composed and resolved together.
@@ -1301,7 +1301,7 @@ Inventory reservation processes order items reactively:
 
 ```java
 Flux.fromIterable(event.items())
-    .flatMap(this::reserveSingleItem)
+        .flatMap(this::reserveSingleItem)
     .collectList();
 ```
 
@@ -1316,7 +1316,7 @@ return Mono.zip(
         inventoryMono,
         paymentsMono,
         topProductsMono
-)
+        )
 .map(tuple -> new DashboardReportResponse(...));
 ```
 
@@ -1332,7 +1332,7 @@ return Mono.zip(
         inventoryMono,
         topProductsMono,
         outboxMono
-)
+        )
 .map(tuple -> new AdminDashboardResponse(...));
 ```
 
