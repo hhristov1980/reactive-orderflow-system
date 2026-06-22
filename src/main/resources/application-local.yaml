@@ -96,3 +96,13 @@ orderflow:
       enabled: true
       fixed-delay-ms: 5000
       max-retries: 5
+
+  security:
+    admin:
+      username: admin
+      password: admin
+      role: ADMIN
+      jwt:
+        secret: orderflow-demo-secret-key-with-at-least-32-chars
+        issuer: orderflow
+        expiration-minutes: 60
