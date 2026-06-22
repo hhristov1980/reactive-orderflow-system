@@ -103,3 +103,13 @@ orderflow:
       enabled: ${ORDERFLOW_SCHEDULER_OUTBOX_ENABLED:true}
       fixed-delay-ms: ${ORDERFLOW_SCHEDULER_OUTBOX_FIXED_DELAY_MS:5000}
       max-retries: ${ORDERFLOW_SCHEDULER_OUTBOX_MAX_RETRIES:5}
+
+  security:
+    admin:
+      username: ${ORDERFLOW_ADMIN_USERNAME:admin}
+      password: ${ORDERFLOW_ADMIN_PASSWORD:admin}
+      role: ADMIN
+      jwt:
+        secret: ${ORDERFLOW_JWT_SECRET:orderflow-demo-secret-key-with-at-least-32-chars}
+        issuer: orderflow
+        expiration-minutes: ${ORDERFLOW_EXPIRATION_MINUTES:60}

@@ -2,9 +2,9 @@
 
 [![CI/CD](https://github.com/hhristov1980/reactive-orderflow-system/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/hhristov1980/reactive-orderflow-system/actions/workflows/ci-cd.yml)
 
-OrderFlow is a reactive, event-driven order management platform built with Spring WebFlux, R2DBC, PostgreSQL, Kafka, Docker, MapStruct, Prometheus, Grafana, and GitHub Actions.
+OrderFlow is a reactive, event-driven order management platform built with Spring WebFlux, R2DBC, PostgreSQL, Kafka, Docker, MapStruct, Spring Security, Prometheus, Grafana, and GitHub Actions.
 
-It demonstrates a realistic e-commerce backend flow: product catalog management, users, order creation, inventory reservation, payment processing, shipping, audit logging, scheduled unpaid payment expiration, reporting, observability, and operational admin views.
+It demonstrates a realistic e-commerce backend flow: product catalog management, users, order creation, inventory reservation, payment processing, shipping, audit logging, scheduled unpaid payment expiration, reporting, observability, JWT-based admin authentication, and operational admin views.
 
 The project is currently implemented as a modular monolith with clear bounded contexts, making it suitable for later extraction into separate microservices.
 
@@ -41,6 +41,10 @@ The project is designed to demonstrate:
 * Database-level validation of atomic inventory reservation and release logic
 * Shared Testcontainers setup for PostgreSQL integration tests
 * Test suite stabilization with R2DBC pool limits and disabled JUnit parallel execution
+* Admin endpoint protection with Spring Security WebFlux
+* JWT Bearer authentication for operational admin APIs
+* Role-based authorization with JWT `roles` claim
+* Security integration tests for token issuing, invalid tokens, missing tokens, and protected admin access
 
 ---
 
@@ -50,6 +54,8 @@ The project is designed to demonstrate:
 * Spring Boot
 * Spring WebFlux
 * Spring Data R2DBC
+* Spring Security
+* Spring Security OAuth2 Resource Server
 * PostgreSQL
 * Apache Kafka
 * Kafka UI
@@ -84,6 +90,7 @@ The application is currently implemented as a modular monolith with clear bounde
 * Outbox Service
 * Admin Service
 * Reporting Module
+* Security / Auth Module
 
 ### Service Summary
 
@@ -99,6 +106,7 @@ The application is currently implemented as a modular monolith with clear bounde
 | Outbox Service    | Stores domain events transactionally and publishes pending events to Kafka with retry support.             |
 | Report Service    | Provides read-only operational reports and dashboard aggregations from PostgreSQL.                         |
 | Admin Service     | Aggregates dashboard data and exposes operational views for users, audit events, and outbox events.        |
+| Auth / Security   | Issues JWT access tokens and protects admin endpoints with role-based authorization.                       |
 
 ### Package Structure
 
@@ -111,8 +119,10 @@ com.order
 ├── domain
 │   ├── dto
 │   │   ├── request
+│   │   │   └── auth
 │   │   └── response
 │   │       ├── admin
+│   │       ├── auth
 │   │       └── report
 │   ├── entity
 │   ├── enums
@@ -142,6 +152,7 @@ com.order
 flowchart LR
     Client[Client / Swagger UI]
 
+    Client --> Auth[Auth API]
     Client --> Product[Product API]
     Client --> User[User API]
     Client --> Order[Order API]
@@ -149,6 +160,9 @@ flowchart LR
     Client --> Shipment[Shipment API]
     Client --> Reports[Reporting API]
     Client --> Admin[Admin API]
+
+    Auth --> Security[Spring Security JWT]
+    Security --> Admin
 
     Order --> Outbox[Outbox Service]
     Inventory --> Outbox
@@ -184,13 +198,13 @@ Presentation layer
   REST controllers, request validation, OpenAPI annotations, centralized exception handling
 
 Application layer
-  Use-case services, reactive orchestration, transactions, DTO mapping
+  Use-case services, reactive orchestration, transactions, token issuing, DTO mapping
 
 Domain layer
   Entities, enums, events, request/response DTOs
 
 Infrastructure layer
-  R2DBC repositories, custom SQL repositories, Kafka consumers, outbox publisher, schedulers, metrics, configuration
+  R2DBC repositories, custom SQL repositories, Kafka consumers, outbox publisher, schedulers, metrics, security, configuration
 ```
 
 ---
@@ -199,7 +213,7 @@ Infrastructure layer
 
 ### Modular Monolith First
 
-OrderFlow is intentionally implemented as a modular monolith. This keeps local development and deployment simple while still preserving clear bounded contexts around products, users, orders, inventory, payments, shipping, audit, reporting, and admin operations.
+OrderFlow is intentionally implemented as a modular monolith. This keeps local development and deployment simple while still preserving clear bounded contexts around products, users, orders, inventory, payments, shipping, audit, reporting, admin operations, and security.
 
 The package and service boundaries are designed so that individual contexts could later be extracted into separate services if operational needs justify the additional complexity.
 
@@ -216,6 +230,12 @@ Inventory reservation uses conditional PostgreSQL updates instead of read-check-
 ### Idempotent Event Handling
 
 Kafka consumers are designed to tolerate duplicate delivery. Inventory uses a reservation ledger with uniqueness constraints, and duplicate business events such as repeated `order.confirmed`, `order.cancelled`, or `payment.completed` messages are treated as already processed instead of creating duplicate payments, shipments, or stock movements.
+
+### JWT-Based Admin Security
+
+Admin endpoints are protected with Spring Security WebFlux and JWT Bearer authentication. The login endpoint issues a signed JWT containing a `roles` claim. Admin APIs require a token with the `ADMIN` role.
+
+This provides a lightweight but realistic portfolio-level security model without introducing a full external identity provider at this stage.
 
 ### Reactive Composition Where It Adds Value
 
@@ -277,6 +297,103 @@ Grafana local credentials:
 Username: admin
 Password: admin
 ```
+
+---
+
+## Security
+
+OrderFlow protects operational admin APIs with Spring Security WebFlux and JWT Bearer authentication.
+
+Protected endpoints:
+
+```text
+/api/v1/admin/**
+```
+
+Public endpoints remain accessible without authentication, including product, user, order, inventory, payment, shipment, report, actuator, Swagger, and auth login endpoints.
+
+### Login
+
+Admin login endpoint:
+
+```http
+POST /api/v1/auth/login
+```
+
+Example request:
+
+```bash
+curl -X POST http://localhost:8081/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}'
+```
+
+Example response:
+
+```json
+{
+  "tokenType": "Bearer",
+  "accessToken": "<jwt-token>",
+  "expiresInSeconds": 3600,
+  "username": "admin",
+  "roles": ["ADMIN"]
+}
+```
+
+### Accessing Admin APIs
+
+Use the returned access token as a Bearer token:
+
+```bash
+curl http://localhost:8081/api/v1/admin/dashboard \
+  -H "Authorization: Bearer <jwt-token>"
+```
+
+Requests without a token or with an invalid token are rejected with `401 Unauthorized`.
+
+Requests with a valid token that does not contain the required admin role are rejected by Spring Security authorization.
+
+### Security Configuration
+
+Admin credentials and JWT settings are configured through YAML and can be overridden with environment variables:
+
+```yaml
+orderflow:
+  security:
+    admin:
+      username: ${ORDERFLOW_ADMIN_USERNAME:admin}
+      password: ${ORDERFLOW_ADMIN_PASSWORD:admin}
+      role: ADMIN
+      jwt:
+        secret: ${ORDERFLOW_JWT_SECRET:orderflow-demo-secret-key-with-at-least-32-chars}
+        issuer: orderflow
+        expiration-minutes: 60
+```
+
+Local demo credentials:
+
+```text
+username: admin
+password: admin
+```
+
+The JWT contains a `roles` claim:
+
+```json
+{
+  "sub": "admin",
+  "iss": "orderflow",
+  "roles": ["ADMIN"]
+}
+```
+
+Spring Security maps the `roles` claim to authorities such as:
+
+```text
+ROLE_ADMIN
+```
+
+This implementation is intentionally lightweight for the current portfolio stage. A production-grade setup should use stronger secret management, password hashing or an external identity provider, refresh-token handling, key rotation, and centralized user management.
 
 ---
 
@@ -377,7 +494,7 @@ This CI/CD setup is intentionally lightweight but practical for a portfolio back
 
 ## Testing Strategy
 
-The project includes a layered automated testing strategy designed to validate persistence, business workflows, transactional behavior, scheduled jobs, and event-driven reliability.
+The project includes a layered automated testing strategy designed to validate persistence, business workflows, transactional behavior, scheduled jobs, event-driven reliability, and security behavior.
 
 The full suite can be executed locally with:
 
@@ -415,7 +532,7 @@ JUnit parallel execution is disabled for stability:
 junit.jupiter.execution.parallel.enabled=false
 ```
 
-These settings keep the test suite stable when repository tests, service-layer integration tests, scheduler tests, Kafka consumer tests, and Kafka Testcontainers tests are executed together.
+These settings keep the test suite stable when repository tests, service-layer integration tests, scheduler tests, Kafka consumer tests, Kafka Testcontainers tests, and security tests are executed together.
 
 ### Repository and Database Integration Tests
 
@@ -507,6 +624,19 @@ Covered Kafka integration scenarios include:
 * Retryable technical consumer failure is retried and then routed to the matching dead-letter topic
 
 The service-layer integration tests complement the Kafka tests by verifying idempotent business behavior, transactional rollback on outbox failures, and state consistency in PostgreSQL.
+
+### Security Integration Tests
+
+Security integration tests verify the real WebFlux security filter chain.
+
+Covered security scenarios include:
+
+* Admin login issues a JWT access token for valid credentials
+* Invalid admin credentials are rejected with `401 Unauthorized`
+* Admin endpoints reject requests without a Bearer token
+* Admin endpoints reject requests with an invalid Bearer token
+* Admin endpoints allow requests with a valid JWT containing the `ADMIN` role
+* Public endpoints remain accessible without authentication
 
 ### CI Test Environment
 
@@ -1084,6 +1214,8 @@ This demonstrates one of the practical advantages of reactive programming: indep
 
 The admin module exposes operational views over the system without taking ownership of the core business workflows.
 
+Admin endpoints are protected by JWT Bearer authentication and require the `ADMIN` role.
+
 ### Admin Dashboard
 
 ```http
@@ -1128,6 +1260,12 @@ These endpoints reuse `UserService` so administrative status changes follow the 
 ---
 
 ## Main REST API Overview
+
+### Auth
+
+```http
+POST /api/v1/auth/login
+```
 
 ### Products
 
@@ -1195,6 +1333,8 @@ GET /api/v1/reports/dashboard
 ```
 
 ### Admin
+
+All admin endpoints require a valid JWT Bearer token with the `ADMIN` role.
 
 ```http
 GET   /api/v1/admin/dashboard
@@ -1382,7 +1522,7 @@ payload
 created_at
 ```
 
-Audit events can be inspected through admin endpoints.
+Audit events can be inspected through admin endpoints, which require a valid admin JWT.
 
 ---
 
@@ -1390,7 +1530,7 @@ Audit events can be inspected through admin endpoints.
 
 The project avoids hardcoded infrastructure settings.
 
-Kafka topics, consumer groups, topic settings, report limits, scheduler settings, test runtime settings, and other configurable values are defined in YAML configuration and loaded through `@ConfigurationProperties` classes.
+Kafka topics, consumer groups, topic settings, report limits, scheduler settings, security settings, test runtime settings, and other configurable values are defined in YAML configuration and loaded through `@ConfigurationProperties` classes.
 
 Examples:
 
@@ -1401,6 +1541,19 @@ orderflow:
     topic-settings:
       partitions: 1
       replicas: 1
+```
+
+```yaml
+orderflow:
+  security:
+    admin:
+      username: ${ORDERFLOW_ADMIN_USERNAME:admin}
+      password: ${ORDERFLOW_ADMIN_PASSWORD:admin}
+      role: ADMIN
+      jwt:
+        secret: ${ORDERFLOW_JWT_SECRET:orderflow-demo-secret-key-with-at-least-32-chars}
+        issuer: orderflow
+        expiration-minutes: 60
 ```
 
 ```yaml
@@ -1448,10 +1601,11 @@ For Kubernetes or production-like environments, these values can be overridden t
 16. SHIPMENT_CREATED is saved to the outbox
 17. Shipment is marked as SHIPPED
 18. Shipment is marked as DELIVERED
-19. Open reporting dashboard
-20. Open admin dashboard
-21. Inspect outbox events
-22. Inspect audit events for the created order
+19. Login through /api/v1/auth/login
+20. Open reporting dashboard
+21. Open admin dashboard with Bearer token
+22. Inspect outbox events
+23. Inspect audit events for the created order
 ```
 
 ---
@@ -1471,8 +1625,9 @@ For Kubernetes or production-like environments, these values can be overridden t
 10. Inventory marks reservation ledger rows as RELEASED and atomically releases stock
 11. INVENTORY_RELEASED is saved to the outbox
 12. OutboxPublisherScheduler publishes inventory.released
-13. Check audit events for the cancelled order
-14. Check outbox events and confirm all related events are PUBLISHED
+13. Login through /api/v1/auth/login
+14. Check audit events for the cancelled order with Bearer token
+15. Check outbox events and confirm all related events are PUBLISHED
 ```
 
 ---
@@ -1492,12 +1647,16 @@ This project demonstrates several backend engineering concepts that are useful i
 * Reporting read models with custom SQL
 * Parallel dashboard aggregation with `Mono.zip(...)`
 * Operational admin APIs for outbox and audit inspection
+* JWT-based admin authentication with Spring Security WebFlux
+* Role-based admin authorization with JWT `roles` claim
 * Observability with Prometheus and Grafana
 * Centralized configuration through YAML
 * Modular monolith structure ready for microservice extraction
 * GitHub Actions CI/CD with PostgreSQL and Kafka service containers
 * PostgreSQL integration tests with Testcontainers
 * Kafka Testcontainers coverage for real broker publishing and selected listener flows
+* Kafka DLT integration coverage for invalid payloads and retryable technical failures
+* Security integration tests for JWT login and protected admin access
 * Full test-suite stabilization for larger integration-test runs
 
 ---
@@ -1517,10 +1676,11 @@ A good demo sequence for the project is:
 8. Complete payment manually
 9. Watch PAYMENT_COMPLETED and SHIPMENT_CREATED through outbox_events
 10. Mark shipment as SHIPPED and DELIVERED
-11. Open reporting dashboard
-12. Open admin dashboard
-13. Inspect outbox events
-14. Inspect audit events for the created order
+11. Login through /api/v1/auth/login and copy the JWT access token
+12. Open reporting dashboard
+13. Open admin dashboard with Authorization: Bearer <token>
+14. Inspect outbox events
+15. Inspect audit events for the created order
 ```
 
 Failure scenario:
@@ -1533,8 +1693,9 @@ Failure scenario:
 5. payment.expired is published
 6. Order is cancelled
 7. Inventory marks reservation ledger rows as RELEASED and releases stock
-8. Check audit events for the cancelled order
-9. Check outbox events and confirm all related events are PUBLISHED
+8. Login through /api/v1/auth/login
+9. Check audit events for the cancelled order with Bearer token
+10. Check outbox events and confirm all related events are PUBLISHED
 ```
 
 Inventory failure scenario:
@@ -1546,7 +1707,8 @@ Inventory failure scenario:
 4. INVENTORY_FAILED is saved to the outbox
 5. inventory.failed is published
 6. Order moves to FAILED
-7. Inspect outbox and audit data
+7. Login through /api/v1/auth/login
+8. Inspect outbox and audit data with Bearer token
 ```
 
 ---
@@ -1557,14 +1719,15 @@ This project is production-inspired, but it is still a portfolio project and not
 
 Current intentional limitations:
 
-* Authentication and authorization are not implemented yet.
-* Admin endpoints are separated by route and service boundaries, but they are not protected by Spring Security yet.
+* The current authentication model is intentionally simple and uses a configured admin user instead of full user registration, password hashing, refresh tokens, or an external identity provider.
+* JWT signing currently uses a symmetric demo secret configured through YAML/environment variables; production deployments should use secure secret management and key rotation.
+* Admin endpoints are protected by role-based JWT authorization, but there is not yet fine-grained permission control per admin action.
 * The application currently runs as a single modular monolith deployment.
 * Kafka topics use one partition and one replica in local development.
 * The current CI/CD workflow builds, tests, and publishes a JAR artifact, but it does not deploy to a live hosting environment.
 * Distributed tracing and correlation IDs across HTTP, Kafka, outbox, and database operations are planned but not yet implemented.
 
-These limitations are documented explicitly because the main purpose of the project is to demonstrate backend architecture, reliability patterns, reactive programming, event-driven workflows, testing discipline, and operational visibility.
+These limitations are documented explicitly because the main purpose of the project is to demonstrate backend architecture, reliability patterns, reactive programming, event-driven workflows, testing discipline, security basics, and operational visibility.
 
 ---
 
@@ -1580,10 +1743,13 @@ The CI workflow starts PostgreSQL and Kafka service containers, disables local D
 
 Potential next steps:
 
+* External identity provider integration with OAuth2/OIDC, for example Keycloak
+* Refresh token flow and token revocation support
+* Password hashing and persistent users for non-demo authentication
+* Fine-grained admin permissions beyond a single `ADMIN` role
 * End-to-end verification of Kafka retry and dead-letter topic behavior with real Kafka
 * Contract tests for Kafka event schemas before extracting bounded contexts into services
 * Separate modules or microservices per bounded context
-* Authentication and authorization with Spring Security
 * More advanced reporting and time-based analytics
 * Distributed tracing with correlation IDs across HTTP, outbox, Kafka, and database work
 * Admin workflow for inspecting, replaying, or parking records from dead-letter topics
@@ -1599,6 +1765,11 @@ Implemented:
 * User CRUD
 * User role and status management
 * Admin user block and activate actions
+* JWT-based admin authentication
+* JWT access token issuing through `/api/v1/auth/login`
+* Role-based admin authorization using JWT `roles` claim
+* Spring Security WebFlux protection for `/api/v1/admin/**`
+* Security integration tests for missing token, invalid token, invalid login, valid login, and protected admin access
 * Order lifecycle
 * Inventory reservation and release
 * Atomic inventory stock updates
