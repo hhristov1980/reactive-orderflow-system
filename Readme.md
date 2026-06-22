@@ -1005,7 +1005,7 @@ The system uses reactive composition to process order items:
 
 ```java
 Flux.fromIterable(event.items())
-    .flatMap(this::reserveSingleItem)
+        .flatMap(this::reserveSingleItem)
     .collectList();
 ```
 
@@ -1198,12 +1198,12 @@ The dashboard combines independent report queries in parallel using `Mono.zip(..
 
 ```java
 Mono.zip(
-    ordersMono,
-    revenueMono,
-    inventoryMono,
-    paymentsMono,
-    topProductsMono
-)
+        ordersMono,
+        revenueMono,
+        inventoryMono,
+        paymentsMono,
+        topProductsMono
+        )
 ```
 
 This demonstrates one of the practical advantages of reactive programming: independent non-blocking operations can be composed and resolved together.
@@ -1443,7 +1443,7 @@ Inventory reservation processes order items reactively:
 
 ```java
 Flux.fromIterable(event.items())
-    .flatMap(this::reserveSingleItem)
+        .flatMap(this::reserveSingleItem)
     .collectList();
 ```
 
@@ -1458,7 +1458,7 @@ return Mono.zip(
         inventoryMono,
         paymentsMono,
         topProductsMono
-)
+        )
 .map(tuple -> new DashboardReportResponse(...));
 ```
 
@@ -1474,7 +1474,7 @@ return Mono.zip(
         inventoryMono,
         topProductsMono,
         outboxMono
-)
+        )
 .map(tuple -> new AdminDashboardResponse(...));
 ```
 
@@ -1709,6 +1709,18 @@ Inventory failure scenario:
 6. Order moves to FAILED
 7. Login through /api/v1/auth/login
 8. Inspect outbox and audit data with Bearer token
+```
+
+Inventory failure scenario:
+
+```text
+1. Create product inventory with low stock
+2. Create an order requesting more units than available
+3. Inventory reservation fails
+4. INVENTORY_FAILED is saved to the outbox
+5. inventory.failed is published
+6. Order moves to FAILED
+7. Inspect outbox and audit data
 ```
 
 ---
